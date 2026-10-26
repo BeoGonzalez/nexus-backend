@@ -1,0 +1,78 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nexus_api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://nexus:nexus123@db:5432/nexus_db}
+      - JWT_SECRET=${JWT_SECRET:-your-super-secret-key-change-in-production}
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - LANGSMITH_API_KEY=${LANGSMITH_API_KEY:-}
+      - LANGCHAIN_TRACING_V2=${LANGSMITH_TRACING:-false}
+      - LANGCHAIN_PROJECT=${LANGSMITH_PROJECT:-nexus-digital-store}
+    volumes:
+      # CRÍTICO: Persistencia del modelo de HuggingFace (~470MB) para evitar descargas en cada reinicio
+      # Usamos el directorio home de root ya que es el usuario por defecto de la imagen de Python
+      - hf_cache:/root/.cache/huggingface
+    depends_on:
+      db:
+        condition: service_healthy
+    # Aceleración por Hardware (NVIDIA CUDA / WSL2)
+    # Descomenta este bloque si deseas que langchain-huggingface utilice la GPU
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  db:
+    # PostgreSQL 16 estandar (búsquedas vectoriales delegadas a Pinecone)
+    image: postgres:16-alpine
+    container_name: nexus_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: nexus
+      POSTGRES_PASSWORD: nexus123
+      POSTGRES_DB: nexus_db
+    ports:
+      - "5432:5432"
+    volumes:
+      # Persistencia de los datos relacionales y vectoriales
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      # Healthcheck riguroso utilizando pg_isready para asegurar que la DB acepta conexiones
+      test: ["CMD-SHELL", "pg_isready -U nexus -d nexus_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  zap:
+    # OWASP ZAP (Zed Attack Proxy) para escaneo de vulnerabilidades
+    # Nota: ZAP escanea la API web, no la base de datos directamente, ya que busca inyecciones SQL y otros fallos a través de las rutas HTTP.
+    image: zaproxy/zap-stable:latest
+    container_name: nexus_zap_scanner
+    profiles:
+      - security
+    depends_on:
+      api:
+        condition: service_started
+    # Escaneo automatizado de API basado en el esquema OpenAPI/Swagger provisto por FastAPI
+    command: zap-api-scan.py -t http://api:8000/openapi.json -f openapi -r api_scan_report.html
+    volumes:
+      # Monta la carpeta local para guardar el reporte HTML
+      - ./zap-reports:/zap/wrk
+
+volumes:
+  postgres_data:
+    name: nexus_postgres_data
+  hf_cache:
+    name: nexus_hf_cache
