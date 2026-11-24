@@ -16,8 +16,11 @@ spec:
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0 # zero-downtime
+      # Sin pod extra durante el cambio: el ai-agent pide 1.5Gi y en 2 nodos t3.medium no hay hueco para dos a la vez
+      # (FailedScheduling: Insufficient memory). Coste: ~1 min sin asistente por despliegue. Con 3 nodos, volver a
+      # maxSurge: 1 / maxUnavailable: 0 para zero-downtime.
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: ai-agent
