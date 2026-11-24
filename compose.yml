@@ -1,78 +1,246 @@
 services:
-  api:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: nexus_api
-    restart: unless-stopped
-    ports:
-      - "8000:8000"
-    env_file:
-      - .env
-    environment:
-      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://nexus:nexus123@db:5432/nexus_db}
-      - JWT_SECRET=${JWT_SECRET:-your-super-secret-key-change-in-production}
-      - GROQ_API_KEY=${GROQ_API_KEY:-}
-      - LANGSMITH_API_KEY=${LANGSMITH_API_KEY:-}
-      - LANGCHAIN_TRACING_V2=${LANGSMITH_TRACING:-false}
-      - LANGCHAIN_PROJECT=${LANGSMITH_PROJECT:-nexus-digital-store}
-    volumes:
-      # CRÍTICO: Persistencia del modelo de HuggingFace (~470MB) para evitar descargas en cada reinicio
-      # Usamos el directorio home de root ya que es el usuario por defecto de la imagen de Python
-      - hf_cache:/root/.cache/huggingface
-    depends_on:
-      db:
-        condition: service_healthy
-    # Aceleración por Hardware (NVIDIA CUDA / WSL2)
-    # Descomenta este bloque si deseas que langchain-huggingface utilice la GPU
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: all
-    #           capabilities: [gpu]
+  # ==============================================================================
+  # INFRAESTRUCTURA BASE (Backing Services)
+  # ==============================================================================
 
-  db:
-    # PostgreSQL 16 estandar (búsquedas vectoriales delegadas a Pinecone)
+  postgres:
     image: postgres:16-alpine
-    container_name: nexus_db
+    container_name: nexus_postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: nexus
       POSTGRES_PASSWORD: nexus123
-      POSTGRES_DB: nexus_db
+      POSTGRES_DB: nexus_main
+      # Script de inicialización creará las bases aisladas para cada bounded context
+      POSTGRES_MULTIPLE_DATABASES: nexus_auth,nexus_catalog,nexus_orders,nexus_recommendations
     ports:
       - "5432:5432"
     volumes:
-      # Persistencia de los datos relacionales y vectoriales
       - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init-multiple-dbs.sh:/docker-entrypoint-initdb.d/init-multiple-dbs.sh:ro
     healthcheck:
-      # Healthcheck riguroso utilizando pg_isready para asegurar que la DB acepta conexiones
-      test: ["CMD-SHELL", "pg_isready -U nexus -d nexus_db"]
+      test: ["CMD-SHELL", "pg_isready -U nexus -d nexus_main"]
       interval: 5s
       timeout: 5s
       retries: 5
       start_period: 10s
+    networks:
+      - nexus_net
 
-  zap:
-    # OWASP ZAP (Zed Attack Proxy) para escaneo de vulnerabilidades
-    # Nota: ZAP escanea la API web, no la base de datos directamente, ya que busca inyecciones SQL y otros fallos a través de las rutas HTTP.
-    image: zaproxy/zap-stable:latest
-    container_name: nexus_zap_scanner
-    profiles:
-      - security
-    depends_on:
-      api:
-        condition: service_started
-    # Escaneo automatizado de API basado en el esquema OpenAPI/Swagger provisto por FastAPI
-    command: zap-api-scan.py -t http://api:8000/openapi.json -f openapi -r api_scan_report.html
+  redis:
+    image: redis:7-alpine
+    container_name: nexus_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy volatile-lru
+    ports:
+      - "6379:6379"
     volumes:
-      # Monta la carpeta local para guardar el reporte HTML
-      - ./zap-reports:/zap/wrk
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - nexus_net
 
+  # ==============================================================================
+  # 1. AUTENTICACIÓN Y AUTORIZACIÓN (Auth Service)
+  # ==============================================================================
+  auth-service:
+    build:
+      context: .
+      dockerfile: services/auth-service/Dockerfile
+    container_name: nexus_auth_service
+    restart: unless-stopped
+    ports:
+      - "8001:8000"
+    environment:
+      - PORT=8000
+      - DATABASE_URL=postgresql+asyncpg://nexus:nexus123@postgres:5432/nexus_auth
+      - JWT_SECRET=${JWT_SECRET:-super-secret-jwt-key-for-local-development}
+      - JWT_ALGORITHM=HS256
+      - COGNITO_REGION=${COGNITO_REGION:-us-east-1}
+      - COGNITO_USER_POOL_ID=${COGNITO_USER_POOL_ID:-}
+      - COGNITO_APP_CLIENT_ID=${COGNITO_APP_CLIENT_ID:-}
+      # Desarrollo con Docker sin Cognito: modo local explícito (en EKS se deja en false).
+      - AUTH_LOCAL_MODE=${AUTH_LOCAL_MODE:-true}
+      - LOCAL_ADMIN_EMAILS=${LOCAL_ADMIN_EMAILS:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - nexus_net
+
+  # ==============================================================================
+  # 2. CATÁLOGO DE PRODUCTOS (Catalog Service)
+  # ==============================================================================
+  catalog-service:
+    build:
+      context: .
+      dockerfile: services/catalog-service/Dockerfile
+    container_name: nexus_catalog_service
+    restart: unless-stopped
+    ports:
+      - "8002:8000"
+    environment:
+      - PORT=8000
+      # Verificación de JWT locales (sin Cognito). Sin este valor el servicio rechaza todo token (fail-closed).
+      - JWT_SECRET=${JWT_SECRET:-super-secret-jwt-key-for-local-development}
+      - DATABASE_URL=postgresql+asyncpg://nexus:nexus123@postgres:5432/nexus_catalog
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - nexus_net
+
+  # ==============================================================================
+  # 3. CARRITO DE COMPRAS (Cart Service - In-Memory Fast Path)
+  # ==============================================================================
+  cart-service:
+    build:
+      context: .
+      dockerfile: services/cart-service/Dockerfile
+    container_name: nexus_cart_service
+    restart: unless-stopped
+    ports:
+      - "8003:8000"
+    environment:
+      - PORT=8000
+      # Verificación de JWT locales (sin Cognito). Sin este valor el servicio rechaza todo token (fail-closed).
+      - JWT_SECRET=${JWT_SECRET:-super-secret-jwt-key-for-local-development}
+      - REDIS_URL=redis://redis:6379/0
+      - CATALOG_SERVICE_URL=http://catalog-service:8000
+    depends_on:
+      redis:
+        condition: service_healthy
+      catalog-service:
+        condition: service_started
+    networks:
+      - nexus_net
+
+  # ==============================================================================
+  # 4. GESTIÓN DE ÓRDENES Y PAGOS (Orders Service - Saga & Outbox)
+  # ==============================================================================
+  orders-service:
+    build:
+      context: .
+      dockerfile: services/orders-service/Dockerfile
+    container_name: nexus_orders_service
+    restart: unless-stopped
+    ports:
+      - "8004:8000"
+    environment:
+      - PORT=8000
+      # Verificación de JWT locales (sin Cognito). Sin este valor el servicio rechaza todo token (fail-closed).
+      - JWT_SECRET=${JWT_SECRET:-super-secret-jwt-key-for-local-development}
+      - DATABASE_URL=postgresql+asyncpg://nexus:nexus123@postgres:5432/nexus_orders
+      - CATALOG_SERVICE_URL=http://catalog-service:8000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      catalog-service:
+        condition: service_started
+    networks:
+      - nexus_net
+
+  # ==============================================================================
+  # 5. SISTEMA DE NOTIFICACIONES (Notifications Service - Event Consumer)
+  # ==============================================================================
+  notifications-service:
+    build:
+      context: .
+      dockerfile: services/notifications-service/Dockerfile
+    container_name: nexus_notifications_service
+    restart: unless-stopped
+    ports:
+      - "8005:8000"
+    environment:
+      - PORT=8000
+      # Verificación de JWT locales (sin Cognito). Sin este valor el servicio rechaza todo token (fail-closed).
+      - JWT_SECRET=${JWT_SECRET:-super-secret-jwt-key-for-local-development}
+      - SMTP_HOST=${SMTP_HOST:-smtp.gmail.com}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - SMTP_FROM_NAME="Nexus Digital Store 🎮"
+    networks:
+      - nexus_net
+
+  # ==============================================================================
+  # 6. MOTOR DE RECOMENDACIONES (Recommendations Service)
+  # ==============================================================================
+  recommendations-service:
+    build:
+      context: .
+      dockerfile: services/recommendations-service/Dockerfile
+    container_name: nexus_recommendations_service
+    restart: unless-stopped
+    ports:
+      - "8006:8000"
+    environment:
+      - PORT=8000
+      # Verificación de JWT locales (sin Cognito). Sin este valor el servicio rechaza todo token (fail-closed).
+      - JWT_SECRET=${JWT_SECRET:-super-secret-jwt-key-for-local-development}
+      - DATABASE_URL=postgresql+asyncpg://nexus:nexus123@postgres:5432/nexus_recommendations
+      - REDIS_URL=redis://redis:6379/1
+      - PINECONE_API_KEY=${PINECONE_API_KEY:-}
+      - PINECONE_INDEX_NAME=${PINECONE_INDEX_NAME:-nexus-catalog}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - nexus_net
+
+  # ==============================================================================
+  # 7. CHATBOT BASADO EN LLM (AI Agent Service - Streaming SSE)
+  # ==============================================================================
+  ai-agent-service:
+    build:
+      context: .
+      dockerfile: services/ai-agent-service/Dockerfile
+    container_name: nexus_ai_agent_service
+    restart: unless-stopped
+    ports:
+      - "8007:8000"
+    environment:
+      - PORT=8000
+      # Verificación de JWT locales (sin Cognito). Sin este valor el servicio rechaza todo token (fail-closed).
+      - JWT_SECRET=${JWT_SECRET:-super-secret-jwt-key-for-local-development}
+      - REDIS_URL=redis://redis:6379/2
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - GROQ_MODEL_NAME=${GROQ_MODEL_NAME:-openai/gpt-oss-120b}
+      - GROQ_TEMPERATURE=0.1
+      - PINECONE_API_KEY=${PINECONE_API_KEY:-}
+      - PINECONE_INDEX_NAME=${PINECONE_INDEX_NAME:-nexus-games}
+      - PINECONE_NAMESPACE=${PINECONE_NAMESPACE:-catalog}
+      - TAVILY_API_KEY=${TAVILY_API_KEY:-}
+      - CATALOG_SERVICE_URL=http://catalog-service:8000
+      - ENABLE_CREWAI_ORCHESTRATION=${ENABLE_CREWAI_ORCHESTRATION:-false}
+    volumes:
+      - hf_cache:/root/.cache/huggingface
+    depends_on:
+      redis:
+        condition: service_healthy
+      catalog-service:
+        condition: service_started
+    networks:
+      - nexus_net
+
+# ==============================================================================
+# VOLÚMENES Y REDES
+# ==============================================================================
 volumes:
   postgres_data:
     name: nexus_postgres_data
+  redis_data:
+    name: nexus_redis_data
   hf_cache:
     name: nexus_hf_cache
+
+networks:
+  nexus_net:
+    name: nexus_network
+    driver: bridge

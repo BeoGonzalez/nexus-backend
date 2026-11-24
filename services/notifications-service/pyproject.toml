@@ -1,0 +1,18 @@
+[project]
+name = "notifications-service"
+version = "0.1.0"
+description = "Event-driven Notifications Microservice for Nexus Digital Store"
+requires-python = ">=3.11"
+dependencies = [
+    "nexus-core",
+    "nexus-events",
+    "nexus-security",
+    "fastapi[standard]>=0.110.0",
+    "pydantic-settings>=2.2.0",
+    "aiosmtplib>=3.0.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.5,<0.13.0"]
+build-backend = "uv_build"
+

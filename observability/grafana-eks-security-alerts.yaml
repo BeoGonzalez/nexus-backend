@@ -1,0 +1,433 @@
+# Reglas de alerta de seguridad y disponibilidad para Grafana Alerting (OWASP A09/A10) — nexus-backend en EKS.
+#
+# Formato: provisioning de Grafana Alerting (apiVersion 1). Cárgalo copiándolo en
+# /etc/grafana/provisioning/alerting/ (p. ej. ConfigMap con la etiqueta grafana_alert del chart de Grafana) o
+# por la API /api/v1/provisioning/alert-rules. Grafana sustituye ${VAR} con variables de entorno:
+#   GRAFANA_PROMETHEUS_UID  UID del datasource Prometheus/Mimir (métricas OTLP del Collector + kube-state-metrics)
+#   GRAFANA_LOKI_UID        UID del datasource Loki (logs JSON de los pods)
+#
+# Supuestos de nombres (ajústalos si tu pipeline de telemetría los renombra):
+#   - Métricas HTTP de opentelemetry-instrumentation-fastapi con OTEL_SEMCONV_STABILITY_OPT_IN=http, exportadas
+#     por el Collector a Prometheus: http_server_request_duration_seconds_count{job, http_response_status_code}.
+#     `job` = "<service.namespace>/<service.name>" = "nexus/auth-service", etc.
+#   - kube-state-metrics para reinicios y CrashLoopBackOff.
+#   - Logs en Loki con etiquetas namespace/container; campos JSON security_event, logger, level (ver
+#     packages/nexus-core/src/nexus_core/infrastructure/logging.py).
+apiVersion: 1
+groups:
+  # ------------------------------------------------------------------------------------------- métricas
+  - orgId: 1
+    name: nexus-security-http
+    folder: Nexus EKS
+    interval: 1m
+    rules:
+      - uid: nexus-http-401-spike
+        title: "Pico de 401 (posible fuerza bruta / tokens inválidos)"
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        labels: { severity: warning, owasp: A07, team: backend }
+        annotations:
+          summary: "{{ $labels.job }}: {{ humanize $values.A.Value }} respuestas 401/s"
+          description: "Más de 0,5 respuestas 401 por segundo durante 5 min. Revisa en Loki security_event=http.unauthorized y auth.login_failed (client_ip, forwarded_for)."
+        data:
+          - refId: A
+            datasourceUid: ${GRAFANA_PROMETHEUS_UID}
+            relativeTimeRange: { from: 600, to: 0 }
+            model:
+              refId: A
+              instant: true
+              expr: sum by (job) (rate(http_server_request_duration_seconds_count{job=~"nexus/.*", http_response_status_code="401"}[5m]))
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions: [{ evaluator: { type: gt, params: [0.5] } }]
+
+      - uid: nexus-http-403-spike
+        title: "Pico de 403 (intentos de acceso a recursos ajenos / escalada de privilegios)"
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        labels: { severity: warning, owasp: A01, team: backend }
+        annotations:
+          summary: "{{ $labels.job }}: {{ humanize $values.A.Value }} respuestas 403/s"
+          description: "Más de 0,2 respuestas 403 por segundo durante 5 min. Un mismo client_ip con muchos 403 sugiere enumeración de IDs (IDOR) o abuso de rutas de admin."
+        data:
+          - refId: A
+            datasourceUid: ${GRAFANA_PROMETHEUS_UID}
+            relativeTimeRange: { from: 600, to: 0 }
+            model:
+              refId: A
+              instant: true
+              expr: sum by (job) (rate(http_server_request_duration_seconds_count{job=~"nexus/.*", http_response_status_code="403"}[5m]))
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions: [{ evaluator: { type: gt, params: [0.2] } }]
+
+      - uid: nexus-http-429-rate-limit
+        title: "Rate limiting activo en autenticación"
+        condition: C
+        for: 2m
+        noDataState: OK
+        execErrState: Error
+        labels: { severity: warning, owasp: A07, team: backend }
+        annotations:
+          summary: "{{ $labels.job }}: {{ humanize $values.A.Value }} respuestas 429/s"
+          description: "El limitador de /api/v1/auth/* está bloqueando peticiones: credential stuffing probable. Revisa security_event=auth.rate_limited."
+        data:
+          - refId: A
+            datasourceUid: ${GRAFANA_PROMETHEUS_UID}
+            relativeTimeRange: { from: 600, to: 0 }
+            model:
+              refId: A
+              instant: true
+              expr: sum by (job) (rate(http_server_request_duration_seconds_count{job=~"nexus/.*", http_response_status_code="429"}[5m]))
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions: [{ evaluator: { type: gt, params: [0.1] } }]
+
+      - uid: nexus-http-5xx-ratio
+        title: "Errores 5xx por encima del 5 %"
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        labels: { severity: critical, owasp: A10, team: backend }
+        annotations:
+          summary: "{{ $labels.job }}: {{ humanizePercentage $values.A.Value }} de respuestas 5xx"
+          description: "El cliente solo recibe 'Error interno del servidor.' con request_id; la traza completa está en Loki (logger nexus.errors) y en Tempo (trace_id)."
+        data:
+          - refId: A
+            datasourceUid: ${GRAFANA_PROMETHEUS_UID}
+            relativeTimeRange: { from: 600, to: 0 }
+            model:
+              refId: A
+              instant: true
+              expr: |
+                sum by (job) (rate(http_server_request_duration_seconds_count{job=~"nexus/.*", http_response_status_code=~"5.."}[5m]))
+                /
+                clamp_min(sum by (job) (rate(http_server_request_duration_seconds_count{job=~"nexus/.*"}[5m])), 1e-9)
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions: [{ evaluator: { type: gt, params: [0.05] } }]
+
+  # ------------------------------------------------------------------------------------------- pods
+  - orgId: 1
+    name: nexus-security-pods
+    folder: Nexus EKS
+    interval: 1m
+    rules:
+      - uid: nexus-pod-restarts
+        title: "Reinicios anómalos de pods"
+        condition: C
+        for: 0m
+        noDataState: OK
+        execErrState: Error
+        labels: { severity: warning, owasp: A10, team: backend }
+        annotations:
+          summary: "{{ $labels.pod }} se reinició {{ $values.A.Value }} veces en 15 min"
+          description: "Posible OOMKilled, fallo de liveness o excepción fatal al arrancar. kubectl -n nexus describe pod {{ $labels.pod }}"
+        data:
+          - refId: A
+            datasourceUid: ${GRAFANA_PROMETHEUS_UID}
+            relativeTimeRange: { from: 900, to: 0 }
+            model:
+              refId: A
+              instant: true
+              expr: sum by (namespace, pod) (increase(kube_pod_container_status_restarts_total{namespace="nexus"}[15m]))
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions: [{ evaluator: { type: gt, params: [2] } }]
+
+      - uid: nexus-pod-crashloop
+        title: "Pod en CrashLoopBackOff"
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        labels: { severity: critical, owasp: A10, team: backend }
+        annotations:
+          summary: "{{ $labels.pod }} en CrashLoopBackOff"
+          description: "Falta un Secret <servicio>-env, configuración inválida o imagen rota. Revisa los eventos del pod y el último rollout."
+        data:
+          - refId: A
+            datasourceUid: ${GRAFANA_PROMETHEUS_UID}
+            relativeTimeRange: { from: 600, to: 0 }
+            model:
+              refId: A
+              instant: true
+              expr: max by (namespace, pod) (kube_pod_container_status_waiting_reason{namespace="nexus", reason="CrashLoopBackOff"})
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions: [{ evaluator: { type: gt, params: [0] } }]
+
+  # ------------------------------------------------------------------------------------------- logs (Loki)
+  - orgId: 1
+    name: nexus-security-events
+    folder: Nexus EKS
+    interval: 1m
+    rules:
+      - uid: nexus-login-failed-burst
+        title: "Ráfaga de logins fallidos"
+        condition: C
+        for: 0m
+        noDataState: OK
+        execErrState: Error
+        labels: { severity: warning, owasp: A07, team: backend }
+        annotations:
+          summary: "{{ $values.A.Value }} logins fallidos en 5 min"
+          description: "security_event=auth.login_failed (email enmascarado a***@dominio, client_ip). Correlaciona con auth.rate_limited."
+        data:
+          - refId: A
+            datasourceUid: ${GRAFANA_LOKI_UID}
+            relativeTimeRange: { from: 300, to: 0 }
+            model:
+              refId: A
+              queryType: instant
+              expr: sum(count_over_time({namespace="nexus", container="app"} | json | security_event="auth.login_failed" [5m]))
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions: [{ evaluator: { type: gt, params: [20] } }]
+
+      - uid: nexus-permission-changes
+        title: "Uso de privilegios de administrador"
+        condition: C
+        for: 0m
+        noDataState: OK
+        execErrState: Error
+        labels: { severity: info, owasp: A09, team: backend }
+        annotations:
+          summary: "{{ $values.A.Value }} accesos con rol admin en 5 min"
+          description: "security_event=authz.admin_access (user_sub). Los cambios de grupos/roles se hacen en Cognito: audítalos con CloudTrail (AdminAddUserToGroup / AdminRemoveUserFromGroup)."
+        data:
+          - refId: A
+            datasourceUid: ${GRAFANA_LOKI_UID}
+            relativeTimeRange: { from: 300, to: 0 }
+            model:
+              refId: A
+              queryType: instant
+              expr: sum(count_over_time({namespace="nexus", container="app"} | json | security_event="authz.admin_access" [5m]))
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions: [{ evaluator: { type: gt, params: [0] } }]
+
+      - uid: nexus-auth-misconfigured
+        title: "Autenticación sin configurar (fail-closed activo)"
+        condition: C
+        for: 0m
+        noDataState: OK
+        execErrState: Error
+        labels: { severity: critical, owasp: A02, team: backend }
+        annotations:
+          summary: "Un servicio rechaza todos los tokens: falta Cognito o JWT_SECRET"
+          description: "security_event=auth.misconfigured. Revisa el ConfigMap nexus-config (COGNITO_*) y los Secrets del servicio."
+        data:
+          - refId: A
+            datasourceUid: ${GRAFANA_LOKI_UID}
+            relativeTimeRange: { from: 300, to: 0 }
+            model:
+              refId: A
+              queryType: instant
+              expr: sum(count_over_time({namespace="nexus", container="app"} | json | security_event="auth.misconfigured" [5m]))
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions: [{ evaluator: { type: gt, params: [0] } }]
+
+      - uid: nexus-unhandled-exceptions
+        title: "Excepciones no controladas (500 fail-closed)"
+        condition: C
+        for: 0m
+        noDataState: OK
+        execErrState: Error
+        labels: { severity: warning, owasp: A10, team: backend }
+        annotations:
+          summary: "{{ $values.A.Value }} excepciones no controladas en 5 min"
+          description: "logger=nexus.errors. Cada entrada lleva request_id, trace_id y exception_type; el cliente no ve detalles."
+        data:
+          - refId: A
+            datasourceUid: ${GRAFANA_LOKI_UID}
+            relativeTimeRange: { from: 300, to: 0 }
+            model:
+              refId: A
+              queryType: instant
+              expr: sum(count_over_time({namespace="nexus", container="app"} | json | logger="nexus.errors" | level="ERROR" [5m]))
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions: [{ evaluator: { type: gt, params: [5] } }]
+
+      - uid: nexus-invalid-host
+        title: "Cabecera Host no permitida"
+        condition: C
+        for: 0m
+        noDataState: OK
+        execErrState: Error
+        labels: { severity: info, owasp: A06, team: backend }
+        annotations:
+          summary: "{{ $values.A.Value }} peticiones con Host inválido en 5 min"
+          description: "security_event=http.invalid_host: escaneo o host header injection; si es tráfico legítimo, amplía ALLOWED_HOSTS."
+        data:
+          - refId: A
+            datasourceUid: ${GRAFANA_LOKI_UID}
+            relativeTimeRange: { from: 300, to: 0 }
+            model:
+              refId: A
+              queryType: instant
+              expr: sum(count_over_time({namespace="nexus", container="app"} | json | security_event="http.invalid_host" [5m]))
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions: [{ evaluator: { type: gt, params: [10] } }]
+
+  # ------------------------------------------------------------------------------- asistente IA (OWASP LLM 2026)
+  - orgId: 1
+    name: nexus-llm-guardrails
+    folder: Nexus EKS
+    interval: 1m
+    rules:
+      - uid: nexus-llm-system-prompt-leak
+        title: "IA: intento de fuga del system prompt bloqueado"
+        condition: C
+        for: 0m
+        noDataState: OK
+        execErrState: Error
+        labels: { severity: critical, owasp: LLM08, team: backend }
+        annotations:
+          summary: "{{ $values.A.Value }} fugas bloqueadas en 5 min"
+          description: "security_event=llm.system_prompt_leak_blocked: el modelo intentó emitir el canario o fragmentos del prompt. Revisa user_sub; considera ASSISTANT_ENABLED=false si se repite."
+        data:
+          - refId: A
+            datasourceUid: ${GRAFANA_LOKI_UID}
+            relativeTimeRange: { from: 300, to: 0 }
+            model:
+              refId: A
+              queryType: instant
+              expr: sum(count_over_time({namespace="nexus", container="app"} | json | security_event="llm.system_prompt_leak_blocked" [5m]))
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions: [{ evaluator: { type: gt, params: [0] } }]
+
+      - uid: nexus-llm-injection-campaign
+        title: "IA: campaña de prompt injection"
+        condition: C
+        for: 0m
+        noDataState: OK
+        execErrState: Error
+        labels: { severity: warning, owasp: LLM01, team: backend }
+        annotations:
+          summary: "{{ $values.A.Value }} mensajes con señales de inyección en 10 min"
+          description: "security_event=llm.prompt_injection_suspected (heurística, no bloqueo). Muchos eventos de un mismo user_sub indican ataque automatizado con IA."
+        data:
+          - refId: A
+            datasourceUid: ${GRAFANA_LOKI_UID}
+            relativeTimeRange: { from: 600, to: 0 }
+            model:
+              refId: A
+              queryType: instant
+              expr: sum(count_over_time({namespace="nexus", container="app"} | json | security_event="llm.prompt_injection_suspected" [10m]))
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions: [{ evaluator: { type: gt, params: [15] } }]
+
+      - uid: nexus-llm-denial-of-wallet
+        title: "IA: cuotas agotadas (denial of wallet)"
+        condition: C
+        for: 0m
+        noDataState: OK
+        execErrState: Error
+        labels: { severity: warning, owasp: LLM06, team: backend }
+        annotations:
+          summary: "{{ $values.A.Value }} peticiones rechazadas por cuota en 10 min"
+          description: "security_event=llm.quota_exceeded (reason=per_minute|per_day|concurrency|global_budget). global_budget significa que se alcanzó el techo diario del pod."
+        data:
+          - refId: A
+            datasourceUid: ${GRAFANA_LOKI_UID}
+            relativeTimeRange: { from: 600, to: 0 }
+            model:
+              refId: A
+              queryType: instant
+              expr: sum(count_over_time({namespace="nexus", container="app"} | json | security_event="llm.quota_exceeded" [10m]))
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions: [{ evaluator: { type: gt, params: [30] } }]
+
+      - uid: nexus-llm-tool-denied
+        title: "IA: herramienta de correo denegada"
+        condition: C
+        for: 0m
+        noDataState: OK
+        execErrState: Error
+        labels: { severity: warning, owasp: LLM03, team: backend }
+        annotations:
+          summary: "{{ $values.A.Value }} llamadas a herramientas denegadas en 15 min"
+          description: "security_event=llm.tool_call disposition=deny: el agente intentó enviar correo sin email verificado o por encima de la cuota."
+        data:
+          - refId: A
+            datasourceUid: ${GRAFANA_LOKI_UID}
+            relativeTimeRange: { from: 900, to: 0 }
+            model:
+              refId: A
+              queryType: instant
+              expr: sum(count_over_time({namespace="nexus", container="app"} | json | security_event="llm.tool_call" | disposition="deny" [15m]))
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions: [{ evaluator: { type: gt, params: [5] } }]

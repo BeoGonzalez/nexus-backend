@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "skills": {
+    "fastapi-pro": {
+      "source": "davila7/claude-code-templates",
+      "ref": "main",
+      "commit": "44fd6fda16f51e5accdde254d5f530fb45de7390",
+      "sourceType": "github",
+      "skillPath": "cli-tool/components/skills/development/fastapi-pro/SKILL.md",
+      "computedHash": "c35a2e74a84375c5d9c56efdc112ddc611c647b754cb9e9757effdf4e3f87fee"
+    }
+  }
+}

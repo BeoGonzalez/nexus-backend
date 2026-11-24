@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "name": "tdd-python",
+  "owner": "greyhaven-ai",
+  "repo": "claude-code-config",
+  "path": "grey-haven-plugins/core/skills/tdd-python",
+  "branch": "main",
+  "sha": "81c783da38dfd5cf1eecde94c69ddcfdebba0538",
+  "source": "manual"
+}

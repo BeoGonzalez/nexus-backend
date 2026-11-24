@@ -1,0 +1,510 @@
+# DevSecOps CI/CD de nexus-backend -> Amazon ECR -> Amazon EKS (AWS Academy Learner Lab).
+#
+# Gates mapeados a OWASP Top 10:2025. Si cualquiera falla, no hay push a ECR ni `kubectl apply`.
+#   A01/A07  tests            pytest: roles/scopes, JWT (firma/expiración/alg none), rate limit, IDOR/aislamiento
+#   A02      iac + build      Hadolint, Checkov, kube-score, Trivy (HIGH,CRITICAL)
+#   A03      supply-chain     uv lock --check, pip-audit, SBOM CycloneDX; acciones fijadas por SHA
+#   A04      secrets          Gitleaks (historial + árbol), sin manifiestos Secret reales en k8s/
+#   A05      sast             Bandit + Semgrep (p/python, p/fastapi, p/owasp-top-ten, p/kubernetes, p/dockerfile)
+#   A06/A09/A10 tests         cabeceras, CORS, TrustedHost, logs de seguridad redactados, errores fail-closed
+#   A08      build + deploy   imagen por digest, Cosign keyless, SBOM attestado, provenance SLSA, verificación previa
+#
+# AWS (Learner Lab): el lab NO permite crear roles IAM ni OIDC providers, así que no se puede asumir un rol con
+# el OIDC de GitHub. Se usan las credenciales TEMPORALES de la sesión del lab (caducan con la sesión):
+#   secrets.AWS_ACCESS_KEY_ID, secrets.AWS_SECRET_ACCESS_KEY, secrets.AWS_SESSION_TOKEN  (secrets del repositorio;
+#   actualízalos al iniciar cada sesión del lab). El job `deploy` usa el environment `lab` (añádele revisores
+#   obligatorios si quieres aprobación manual antes de tocar el clúster).
+# `id-token: write` sí se usa: Cosign keyless y las attestations firman con el OIDC de GitHub vía Sigstore.
+#
+# Variables del repositorio (Settings > Secrets and variables > Actions > Variables):
+#   AWS_ACCOUNT_ID, AWS_REGION, ECR_REPOSITORY (prefijo: "nexus" -> nexus-auth, nexus-catalog, ...),
+#   EKS_CLUSTER_NAME, EKS_NAMESPACE, y opcionales COGNITO_USER_POOL_ID, COGNITO_APP_CLIENT_ID, EVENTS_TOPIC_ARN,
+#   OTEL_EXPORTER_OTLP_ENDPOINT, CORS_ALLOWED_ORIGINS, ALLOWED_HOSTS.
+name: devsecops-eks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: devsecops-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  PYTHON_VERSION: "3.11"
+  UV_VERSION: "0.13.9"
+  SEMGREP_VERSION: "1.186.0"
+  CHECKOV_VERSION: "3.4.7"
+  GITLEAKS_VERSION: "8.30.1"
+  GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+  KUBE_SCORE_VERSION: "1.20.0"
+  KUBE_SCORE_SHA256: "ff777b4b3f45905b2d22c69e93c57a7a170e61529a79d54e59cb95cca4bc2a55"
+  HADOLINT_IMAGE: "hadolint/hadolint:v2.15.1@sha256:32dac94127fd60b7b7e3fbfc65e1383b9b5e25c9bfd7b8536de7a539fe68a12d"
+  KUBECTL_VERSION: "v1.35.0"
+
+jobs:
+  # ---------------------------------------------------------------------------------------------- A04
+  secrets:
+    name: "A04 · Secret scanning (Gitleaks)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # historial completo: un secreto borrado sigue filtrado
+          persist-credentials: false
+
+      - name: Instalar Gitleaks (checksum verificado)
+        run: |
+          curl -sSfL -o gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  gitleaks.tar.gz" | sha256sum --check --strict
+          tar -xzf gitleaks.tar.gz gitleaks && sudo install -m 0755 gitleaks /usr/local/bin/gitleaks
+
+      - name: Gitleaks sobre el historial de Git
+        run: gitleaks git . --config .gitleaks.toml --redact --no-banner --exit-code 1
+
+      - name: Gitleaks sobre el árbol de trabajo
+        run: gitleaks dir . --config .gitleaks.toml --redact --no-banner --exit-code 1
+
+      - name: Sin manifiestos Secret fuera de las plantillas
+        run: |
+          set -euo pipefail
+          found=$(grep -rlE '^kind:[[:space:]]*Secret[[:space:]]*$' k8s --include='*.yaml' --include='*.yml' \
+                  | grep -v '^k8s/templates/' || true)
+          if [ -n "$found" ]; then
+            echo "::error::Manifiestos Secret en k8s/ (solo se permiten plantillas en k8s/templates/): $found"
+            exit 1
+          fi
+
+  # ---------------------------------------------------------------------------------------------- A05
+  sast:
+    name: "A05 · SAST (Bandit + Semgrep)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Bandit (severidad y confianza media o superior)
+        run: |
+          uv sync --locked --only-group dev
+          uv run --no-sync bandit -r packages/*/src services/*/src \
+            --severity-level medium --confidence-level medium -f txt
+
+      - name: Semgrep (SQLi, command injection, SSRF, SSTI, misconfig k8s/Docker)
+        run: |
+          uvx --from "semgrep==${SEMGREP_VERSION}" semgrep scan \
+            --config p/python --config p/fastapi --config p/owasp-top-ten \
+            --config p/kubernetes --config p/dockerfile \
+            --exclude tests --exclude tests_support \
+            --metrics=off --error \
+            packages services k8s
+
+  # ---------------------------------------------------------------------------------------------- A03
+  supply-chain:
+    name: "A03 · Supply chain (lock, pip-audit, SBOM)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: uv.lock coherente con los pyproject.toml
+        run: uv lock --check
+
+      - name: Instalación reproducible
+        run: uv sync --locked --all-packages
+
+      - name: pip-audit (dependencias de producción, con hashes)
+        run: |
+          uv export --locked --all-packages --no-dev --no-emit-workspace --format requirements.txt -o requirements-audit.txt
+          uv run --no-sync pip-audit -r requirements-audit.txt --require-hashes --disable-pip \
+            --progress-spinner off --desc on
+
+      - name: SBOM CycloneDX del workspace
+        run: uv export --locked --all-packages --no-dev --format cyclonedx1.5 -o sbom-workspace.cdx.json
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sbom-workspace
+          path: sbom-workspace.cdx.json
+          retention-days: 90
+
+  # ------------------------------------------------------------------------------- A01 A06 A07 A09 A10
+  tests:
+    name: "A01/A07 · Tests de seguridad y funcionales"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - run: uv sync --locked --all-packages
+
+      # Postgres 16 / Redis 7 reales con Testcontainers (Docker del runner). Nunca SQLite.
+      # Los tests marcados `bug` documentan bugs conocidos: van en el job `known-bugs` (informativo).
+      - name: pytest (authz por roles, JWT, rate limit, aislamiento, cabeceras, errores fail-closed)
+        run: uv run --no-sync pytest -m "not bug" -p no:cacheprovider --cov=packages --cov=services --cov-report=term
+
+  known-bugs:
+    name: "Bugs conocidos (informativo, no bloquea)"
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --locked --all-packages
+      - name: Tests marcados @pytest.mark.bug
+        # pytest sale con 5 cuando no hay tests seleccionados: sin bugs conocidos pendientes = éxito.
+        run: |
+          set +e
+          uv run --no-sync pytest -m bug -p no:cacheprovider -rf
+          rc=$?
+          if [ "$rc" -eq 5 ]; then
+            echo "::notice::No quedan bugs conocidos marcados con @pytest.mark.bug."
+            exit 0
+          fi
+          exit "$rc"
+
+  # ---------------------------------------------------------------------------------------------- A02
+  iac:
+    name: "A02 · Dockerfile y manifiestos (Hadolint, Checkov, kube-score)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Hadolint
+        run: |
+          set -euo pipefail
+          for f in services/*/Dockerfile; do
+            echo "::group::$f"
+            docker run --rm -i -v "$PWD/.hadolint.yaml:/.config/hadolint.yaml:ro" "$HADOLINT_IMAGE" \
+              hadolint --config /.config/hadolint.yaml - < "$f"
+            echo "::endgroup::"
+          done
+
+      - uses: azure/setup-kubectl@bda439f5f36b99b262ebdcd3613869bddb064c8e # v5.2.0
+        with:
+          version: ${{ env.KUBECTL_VERSION }}
+
+      - name: Renderizar k8s/ (kustomize)
+        run: kubectl kustomize k8s > rendered.yaml
+
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      # runAsNonRoot, readOnlyRootFilesystem, allowPrivilegeEscalation=false, drop ALL, seccomp RuntimeDefault,
+      # requests/limits, probes, NetworkPolicy... (.checkov.yaml documenta las dos omisiones).
+      - name: Checkov (manifiestos, Dockerfiles y workflows)
+        run: |
+          uvx --from "checkov==${CHECKOV_VERSION}" checkov --config-file .checkov.yaml \
+            -f rendered.yaml --framework kubernetes
+          # Solo los Dockerfiles desplegables (services/*); el Dockerfile raíz es del monolito legado.
+          uvx --from "checkov==${CHECKOV_VERSION}" checkov --config-file .checkov.yaml \
+            -d services --framework dockerfile
+          uvx --from "checkov==${CHECKOV_VERSION}" checkov --config-file .checkov.yaml \
+            -d .github --framework github_actions
+
+      - name: kube-score (falla en CRITICAL)
+        run: |
+          set -euo pipefail
+          curl -sSfL -o kube-score.tar.gz \
+            "https://github.com/zegl/kube-score/releases/download/v${KUBE_SCORE_VERSION}/kube-score_${KUBE_SCORE_VERSION}_linux_amd64.tar.gz"
+          echo "${KUBE_SCORE_SHA256}  kube-score.tar.gz" | sha256sum --check --strict
+          tar -xzf kube-score.tar.gz kube-score
+          # NodePort: requisito del NLB interno del Learner Lab (sin AWS Load Balancer Controller).
+          ./kube-score score --output-format ci --ignore-test service-type rendered.yaml
+
+  # ---------------------------------------------------------------------------------------------- A02 A08
+  build:
+    name: "A02/A08 · Build, Trivy, push, firma (${{ matrix.service }})"
+    needs: [secrets, sast, supply-chain, tests, iac]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # Sigstore (Cosign keyless + attestations). NO se usa para AWS (el lab no tiene OIDC IAM).
+      attestations: write
+    strategy:
+      fail-fast: true
+      matrix:
+        service: [auth, catalog, cart, orders, notifications, recommendations, ai-agent]
+    env:
+      PUBLISH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      LOCAL_IMAGE: nexus-${{ matrix.service }}:${{ github.sha }}
+      REGISTRY: ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com
+      REPOSITORY: ${{ vars.ECR_REPOSITORY }}-${{ matrix.service }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # Se construye UNA vez y se carga en Docker: la imagen escaneada es exactamente la que se sube.
+      - name: Build multi-stage (uv)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: services/${{ matrix.service }}-service/Dockerfile
+          platforms: linux/amd64
+          load: true
+          push: false
+          provenance: false # la provenance la emite actions/attest-build-provenance
+          sbom: false
+          tags: ${{ env.LOCAL_IMAGE }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+      - name: Trivy (vulnerabilidades y secretos en la imagen, falla en HIGH/CRITICAL)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ env.LOCAL_IMAGE }}
+          scanners: vuln,secret,misconfig
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table
+          timeout: 20m
+
+      - name: SBOM CycloneDX de la imagen
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ env.LOCAL_IMAGE }}
+          format: cyclonedx
+          output: sbom-${{ matrix.service }}.cdx.json
+          skip-setup-trivy: true
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sbom-${{ matrix.service }}
+          path: sbom-${{ matrix.service }}.cdx.json
+          retention-days: 90
+
+      # ---------------- Solo en push a main: publicar, firmar y attestar ----------------
+      - name: Credenciales AWS (sesión temporal del Learner Lab)
+        if: env.PUBLISH == 'true'
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          aws-region: ${{ vars.AWS_REGION }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+
+      - name: Login en Amazon ECR
+        if: env.PUBLISH == 'true'
+        uses: aws-actions/amazon-ecr-login@7290e214a610b32bc0eef81748948b6d466a8783 # v2.2.0
+
+      - name: Push a ECR con tag inmutable (SHA del commit)
+        if: env.PUBLISH == 'true'
+        id: push
+        run: |
+          set -euo pipefail
+          target="${REGISTRY}/${REPOSITORY}:${GITHUB_SHA}"
+          docker tag "$LOCAL_IMAGE" "$target"
+          docker push "$target"
+          ref=$(docker inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$target" | grep "^${REGISTRY}/${REPOSITORY}@" | head -1)
+          [ -n "$ref" ] || { echo "::error::No se obtuvo el digest de ${target}"; exit 1; }
+          echo "digest=${ref#*@}" >> "$GITHUB_OUTPUT"
+          echo "ref=${ref}" >> "$GITHUB_OUTPUT"
+          echo "${ref}" > image-ref.txt
+
+      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+        if: env.PUBLISH == 'true'
+
+      - name: Cosign keyless (firma + SBOM attestado, por digest)
+        if: env.PUBLISH == 'true'
+        env:
+          IMAGE_REF: ${{ steps.push.outputs.ref }}
+        run: |
+          set -euo pipefail
+          cosign sign --yes "$IMAGE_REF"
+          cosign attest --yes --type cyclonedx --predicate "sbom-${{ matrix.service }}.cdx.json" "$IMAGE_REF"
+
+      - name: Provenance SLSA (GitHub attestation)
+        if: env.PUBLISH == 'true'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.REPOSITORY }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: env.PUBLISH == 'true'
+        with:
+          name: image-${{ matrix.service }}
+          path: image-ref.txt
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------------------------- A08
+  deploy:
+    name: "A08 · Despliegue verificado en EKS"
+    needs: [build]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: lab
+    concurrency:
+      group: deploy-eks-lab
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      attestations: read
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
+      EKS_NAMESPACE: ${{ vars.EKS_NAMESPACE }}
+      SERVICES: auth catalog cart orders notifications recommendations ai-agent
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: image-*
+          path: images
+
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          aws-region: ${{ vars.AWS_REGION }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+
+      - uses: aws-actions/amazon-ecr-login@7290e214a610b32bc0eef81748948b6d466a8783 # v2.2.0
+
+      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+
+      # Solo se despliega lo que este workflow firmó y attestó (identidad OIDC del repo y de este workflow).
+      - name: Verificar firma Cosign y provenance de cada imagen
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          for svc in $SERVICES; do
+            ref=$(cat "images/image-${svc}/image-ref.txt")
+            echo "::group::${svc} -> ${ref}"
+            cosign verify "$ref" \
+              --certificate-identity-regexp "^https://github.com/${REPO}/\.github/workflows/devsecops-eks\.yml@refs/heads/main$" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com > /dev/null
+            gh attestation verify "oci://${ref}" --repo "$REPO" \
+              --signer-workflow "${REPO}/.github/workflows/devsecops-eks.yml"
+            echo "::endgroup::"
+          done
+
+      - uses: azure/setup-kubectl@bda439f5f36b99b262ebdcd3613869bddb064c8e # v5.2.0
+        with:
+          version: ${{ env.KUBECTL_VERSION }}
+
+      - name: Fijar imágenes por digest, namespace y configuración no sensible
+        env:
+          V_COGNITO_USER_POOL_ID: ${{ vars.COGNITO_USER_POOL_ID }}
+          V_COGNITO_APP_CLIENT_ID: ${{ vars.COGNITO_APP_CLIENT_ID }}
+          V_EVENTS_TOPIC_ARN: ${{ vars.EVENTS_TOPIC_ARN }}
+          V_OTEL_ENDPOINT: ${{ vars.OTEL_EXPORTER_OTLP_ENDPOINT }}
+          V_CORS_ALLOWED_ORIGINS: ${{ vars.CORS_ALLOWED_ORIGINS }}
+          V_ALLOWED_HOSTS: ${{ vars.ALLOWED_HOSTS }}
+          V_ASSISTANT_ENABLED: ${{ vars.ASSISTANT_ENABLED }}
+        run: |
+          set -euo pipefail
+          for svc in $SERVICES; do
+            ref=$(cat "images/image-${svc}/image-ref.txt")
+            NAME="nexus-${svc}" REPO_NAME="${ref%@*}" DIGEST="${ref#*@}" yq -i \
+              '(.images[] | select(.name == strenv(NAME))) = {"name": strenv(NAME), "newName": strenv(REPO_NAME), "digest": strenv(DIGEST)}' \
+              k8s/kustomization.yaml
+          done
+          NS="$EKS_NAMESPACE" yq -i '.namespace = strenv(NS)' k8s/kustomization.yaml
+          {
+            echo "AWS_REGION=${AWS_REGION}"
+            echo "AWS_DEFAULT_REGION=${AWS_REGION}"
+            echo "COGNITO_REGION=${AWS_REGION}"
+            echo "COGNITO_USER_POOL_ID=${V_COGNITO_USER_POOL_ID}"
+            echo "COGNITO_APP_CLIENT_ID=${V_COGNITO_APP_CLIENT_ID}"
+            echo "EVENTS_TOPIC_ARN=${V_EVENTS_TOPIC_ARN}"
+            echo "CATALOG_SERVICE_URL=http://catalog"
+            echo "PGSSLMODE=require"
+            echo "DEBUG=false"
+            echo "AUTH_LOCAL_MODE=false"
+            echo "ENABLE_API_DOCS=false"
+            echo "LANGSMITH_TRACING=false"
+            echo "ENABLE_CREWAI_ORCHESTRATION=false"
+            echo "CORS_ALLOWED_ORIGINS=${V_CORS_ALLOWED_ORIGINS}"
+            echo "ALLOWED_HOSTS=${V_ALLOWED_HOSTS:-*}"
+            echo "TRUSTED_PROXY_HOPS=1"
+            echo "OTEL_EXPORTER_OTLP_ENDPOINT=${V_OTEL_ENDPOINT}"
+            echo "OTEL_EXPORTER_OTLP_PROTOCOL=grpc"
+            echo "OTEL_SEMCONV_STABILITY_OPT_IN=http" # métricas http_server_request_duration_seconds_*
+            echo "ASSISTANT_ENABLED=${V_ASSISTANT_ENABLED:-true}" # kill switch del asistente IA
+            echo "ENABLE_LAYA_DECISION_ENGINE=false"
+          } > k8s/config.env
+          kubectl kustomize k8s > rendered.yaml
+          if grep -q 'set-by-pipeline' rendered.yaml; then
+            echo "::error::Quedan imágenes sin digest en el render"; exit 1
+          fi
+
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      # Segunda pasada sobre el render final: aquí CKV_K8S_43 (imagen por digest) SÍ se exige.
+      - name: Checkov sobre el render final
+        run: |
+          uvx --from "checkov==${CHECKOV_VERSION}" checkov -f rendered.yaml --framework kubernetes \
+            --skip-check CKV_K8S_35 --compact --quiet
+
+      - name: kubectl apply y rollout
+        run: |
+          set -euo pipefail
+          aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER_NAME"
+          kubectl get namespace "$EKS_NAMESPACE" > /dev/null
+          for svc in $SERVICES; do # los Secrets se crean fuera de Git (nexus-infrastructure/k8s/scripts/deploy.sh)
+            kubectl -n "$EKS_NAMESPACE" get secret "${svc}-env" > /dev/null \
+              || { echo "::error::Falta el Secret ${svc}-env en ${EKS_NAMESPACE}"; exit 1; }
+          done
+          kubectl diff -k k8s/ || true
+          kubectl apply -k k8s/
+          for svc in $SERVICES; do
+            kubectl -n "$EKS_NAMESPACE" rollout status "deployment/${svc}" --timeout=600s
+          done
+          kubectl -n "$EKS_NAMESPACE" get deploy -o wide

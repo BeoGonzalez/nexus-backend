@@ -1,0 +1,52 @@
+# Cargas de nexus-backend en EKS (Learner Lab). Uso:  kubectl apply -k k8s/
+#
+# Reparto de responsabilidades con nexus-infrastructure:
+#   - infra (k8s/base + scripts/deploy.sh): Namespace, ServiceAccount nexus-app, Secrets <servicio>-env desde
+#     Secrets Manager y jobs de base de datos.
+#   - este directorio: Deployments, Services (NodePort del NLB), HPA, PDB, NetworkPolicies y ConfigMap no sensible.
+#
+# El pipeline (.github/workflows/devsecops-eks.yml) fija namespace, imágenes por digest y config.env antes de aplicar.
+# Los Secrets NUNCA se declaran aquí (ver templates/secret.example.yaml, fuera del árbol aplicado).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: nexus
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: nexus
+      app.kubernetes.io/managed-by: kustomize
+    includeSelectors: false
+
+resources:
+  - networkpolicy.yaml
+  - services/auth.yaml
+  - services/catalog.yaml
+  - services/cart.yaml
+  - services/orders.yaml
+  - services/notifications.yaml
+  - services/recommendations.yaml
+  - services/ai-agent.yaml
+
+# Configuración NO sensible. El hash en el nombre reinicia los pods cuando cambia.
+configMapGenerator:
+  - name: nexus-config
+    envs:
+      - config.env
+
+# Marcadores: el pipeline los sustituye por <cuenta>.dkr.ecr.<region>.amazonaws.com/<repo>@sha256:<digest>.
+images:
+  - name: nexus-auth
+    newTag: set-by-pipeline
+  - name: nexus-catalog
+    newTag: set-by-pipeline
+  - name: nexus-cart
+    newTag: set-by-pipeline
+  - name: nexus-orders
+    newTag: set-by-pipeline
+  - name: nexus-notifications
+    newTag: set-by-pipeline
+  - name: nexus-recommendations
+    newTag: set-by-pipeline
+  - name: nexus-ai-agent
+    newTag: set-by-pipeline

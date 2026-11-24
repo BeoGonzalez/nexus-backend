@@ -1,0 +1,116 @@
+# NetworkPolicies del namespace (requieren enableNetworkPolicy en el addon vpc-cni; Terraform lo activa).
+# CIDR por defecto del Terraform de nexus-infrastructure: VPC 10.0.0.0/16, subredes de datos 10.0.21.0/24 y
+# 10.0.22.0/24, rango de Services de EKS 172.20.0.0/16. Ajusta si cambian.
+#
+# 1) Denegar todo por defecto (entrada y salida) en el namespace.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# 2) Microservicios FastAPI: entrada solo al puerto 8000 (NLB/nodos de la VPC y otros pods del backend);
+#    salida solo a DNS, IMDS (credenciales del rol del nodo; no hay IRSA en el lab), Aurora/Redis, otros
+#    microservicios, HTTPS (Cognito, SNS/SQS, Groq, Pinecone, Tavily, HuggingFace) y SMTP 587.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: backend
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: backend
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - ipBlock:
+            cidr: 10.0.0.0/16
+      ports:
+        - protocol: TCP
+          port: 8000
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - ipBlock:
+            cidr: 169.254.169.254/32
+      ports:
+        - protocol: TCP
+          port: 80
+    - to:
+        - ipBlock:
+            cidr: 10.0.21.0/24
+        - ipBlock:
+            cidr: 10.0.22.0/24
+      ports:
+        - protocol: TCP
+          port: 5432
+        - protocol: TCP
+          port: 6379
+    # Servicio a servicio (cart/orders -> http://catalog). El agente eBPF del VPC CNI ve el paquete antes de
+    # la traducción de kube-proxy: hay que permitir el rango de Services (puerto 80) además del pod (8000).
+    - to:
+        - ipBlock:
+            cidr: 172.20.0.0/16
+      ports:
+        - protocol: TCP
+          port: 80
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: backend
+      ports:
+        - protocol: TCP
+          port: 8000
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.169.254/32
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 587
+---
+# 3) Telemetría: OTLP hacia el OpenTelemetry Collector del stack Grafana (namespace `observability`).
+#    Política aditiva aparte para no divergir de la regla `backend` que también publica nexus-infrastructure.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: backend-otel-egress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: backend
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: opentelemetry-collector
+      ports:
+        - protocol: TCP
+          port: 4317
+        - protocol: TCP
+          port: 4318
