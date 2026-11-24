@@ -19,7 +19,8 @@
 # Variables del repositorio (Settings > Secrets and variables > Actions > Variables):
 #   AWS_ACCOUNT_ID, AWS_REGION, ECR_REPOSITORY (prefijo: "nexus" -> nexus-auth, nexus-catalog, ...),
 #   EKS_CLUSTER_NAME, EKS_NAMESPACE, y opcionales COGNITO_USER_POOL_ID, COGNITO_APP_CLIENT_ID, EVENTS_TOPIC_ARN,
-#   OTEL_EXPORTER_OTLP_ENDPOINT, CORS_ALLOWED_ORIGINS, ALLOWED_HOSTS.
+#   OTEL_EXPORTER_OTLP_ENDPOINT, CORS_ALLOWED_ORIGINS, ALLOWED_HOSTS, API_BASE_URL (smoke test público tras desplegar:
+#   https://<id>.execute-api.<region>.amazonaws.com/v1/api/v1).
 name: devsecops-eks
 
 on:
@@ -267,7 +268,7 @@ jobs:
       matrix:
         service: [auth, catalog, cart, orders, notifications, recommendations, ai-agent]
     env:
-      PUBLISH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      PUBLISH: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' }}
       LOCAL_IMAGE: nexus-${{ matrix.service }}:${{ github.sha }}
       REGISTRY: ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com
       REPOSITORY: ${{ vars.ECR_REPOSITORY }}-${{ matrix.service }}
@@ -379,7 +380,7 @@ jobs:
   deploy:
     name: "A08 · Despliegue verificado en EKS"
     needs: [build]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: lab
     concurrency:
@@ -493,14 +494,32 @@ jobs:
           uvx --from "checkov==${CHECKOV_VERSION}" checkov -f rendered.yaml --framework kubernetes \
             --skip-check CKV_K8S_35 --compact --quiet
 
+      # El endpoint público de EKS solo acepta IPs concretas (terraform: eks_public_access_cidrs) y los runners
+      # de GitHub no tienen IP fija: se autoriza la /32 del runner solo mientras dura el despliegue.
+      - name: Autorizar temporalmente la IP del runner en el API de EKS
+        run: bash .github/scripts/eks-public-access.sh open
+
       - name: kubectl apply y rollout
+        id: apply
         run: |
           set -euo pipefail
           aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER_NAME"
+          for i in $(seq 1 12); do # el cambio de publicAccessCidrs puede tardar en propagarse
+            kubectl version --request-timeout=10s > /dev/null 2>&1 && break
+            [ "$i" -eq 12 ] && { echo "::error::El API de EKS no responde desde el runner"; exit 1; }
+            echo "API de EKS aún no accesible; reintento ${i}/12"; sleep 15
+          done
           kubectl get namespace "$EKS_NAMESPACE" > /dev/null
           for svc in $SERVICES; do # los Secrets se crean fuera de Git (nexus-infrastructure/k8s/scripts/deploy.sh)
             kubectl -n "$EKS_NAMESPACE" get secret "${svc}-env" > /dev/null \
               || { echo "::error::Falta el Secret ${svc}-env en ${EKS_NAMESPACE}"; exit 1; }
+          done
+          # Revisión vigente de cada Deployment: punto de retorno si la verificación falla.
+          : > "$RUNNER_TEMP/revisions.tsv"
+          for svc in $SERVICES; do
+            rev=$(kubectl -n "$EKS_NAMESPACE" get deployment "$svc" \
+              -o jsonpath='{.metadata.annotations.deployment\.kubernetes\.io/revision}' 2>/dev/null || true)
+            printf '%s %s\n' "$svc" "${rev:-}" >> "$RUNNER_TEMP/revisions.tsv"
           done
           kubectl diff -k k8s/ || true
           kubectl apply -k k8s/
@@ -508,3 +527,36 @@ jobs:
             kubectl -n "$EKS_NAMESPACE" rollout status "deployment/${svc}" --timeout=600s
           done
           kubectl -n "$EKS_NAMESPACE" get deploy -o wide
+
+      # Comprueba en el clúster real que corre exactamente lo firmado, sano y accesible (ver el script).
+      - name: Verificar el despliegue (digests, pods Ready, reinicios, /health interno y público)
+        env:
+          IMAGES_DIR: images
+          API_BASE_URL: ${{ vars.API_BASE_URL }}
+          MAX_RESTARTS: "0"
+        run: bash .github/scripts/verify-eks-deploy.sh
+
+      # Si el apply o la verificación fallan, vuelve cada Deployment a la revisión previa.
+      - name: Rollback automático
+        if: failure() && steps.apply.outcome != 'skipped'
+        run: |
+          set -uo pipefail
+          [ -s "$RUNNER_TEMP/revisions.tsv" ] || { echo "Sin revisiones registradas: nada que revertir"; exit 0; }
+          status=0
+          while read -r svc rev; do
+            now=$(kubectl -n "$EKS_NAMESPACE" get deployment "$svc" \
+              -o jsonpath='{.metadata.annotations.deployment\.kubernetes\.io/revision}' 2>/dev/null || true)
+            if [ -z "$rev" ] || [ "$rev" = "$now" ]; then continue; fi
+            echo "::warning::Rollback de ${svc}: revisión ${now} -> ${rev}"
+            kubectl -n "$EKS_NAMESPACE" rollout undo "deployment/${svc}" --to-revision="$rev" || status=1
+          done < "$RUNNER_TEMP/revisions.tsv"
+          while read -r svc _; do
+            kubectl -n "$EKS_NAMESPACE" rollout status "deployment/${svc}" --timeout=300s || status=1
+          done < "$RUNNER_TEMP/revisions.tsv"
+          kubectl -n "$EKS_NAMESPACE" get deploy -o wide || true
+          exit "$status"
+
+      # Se ejecuta aunque el despliegue falle o se cancele: la IP del runner no queda autorizada.
+      - name: Revocar la IP del runner del API de EKS
+        if: always() && env.RUNNER_CIDR_ADDED == 'true'
+        run: bash .github/scripts/eks-public-access.sh close
