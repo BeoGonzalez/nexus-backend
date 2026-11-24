@@ -47,3 +47,20 @@ def test_years_and_quantities_are_not_amounts():
 def test_ungrounded_amounts_detects_invented_prices():
     assert ungrounded_amounts("Te lo dejo en $1.990 CLP", allowed={19990}) == {1990}
     assert ungrounded_amounts("Cuesta $19.990 CLP", allowed={19990}) == set()
+
+
+import pytest as _pytest
+
+
+@_pytest.mark.parametrize("text", [
+    "**Precio:** **$39 990 CLP**",   # espacio fino (lo usa gpt-oss en tablas)
+    "Precio: $39 990 CLP",                 # espacio no separable
+    "Precio: $39 990",                          # espacio normal como separador de miles
+    "Precio: 39.990 CLP",
+])
+def test_amounts_with_unicode_thousand_separators_are_parsed_whole(text):
+    # Visto en el red-team en vivo: "$39 990" se leía como $39 y disparaba un aviso falso de precio.
+    from ai_agent_service.security.grounding import extract_amounts, ungrounded_amounts
+
+    assert extract_amounts(text) == {39990}
+    assert ungrounded_amounts(text, {39990}) == set()

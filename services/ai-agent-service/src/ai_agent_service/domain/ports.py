@@ -12,7 +12,7 @@ class LLMPort(Protocol):
     async def generate(self, system_prompt: str, user_message: str) -> str: ...
 
     async def generate_stream(
-        self, system_prompt: str, user_message: str,
+        self, system_prompt: str, user_message: str, usage: dict | None = None,
     ) -> AsyncIterator[str]: ...
 
 

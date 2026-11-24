@@ -29,21 +29,24 @@ class FakeVectorStore:
 
 
 class FakeLLM:
-    def __init__(self, chunks=("Te ", "recomiendo ", "Hades II"), fail: bool = False) -> None:
+    def __init__(self, chunks=("Te ", "recomiendo ", "Hades II"), fail: bool = False, usage: dict | None = None) -> None:
         self.chunks = chunks
         self.fail = fail
+        self.usage = usage
         self.prompts: list[str] = []
 
     async def generate(self, system_prompt: str, user_message: str) -> str:
         self.prompts.append(user_message)
         return "".join(self.chunks)
 
-    async def generate_stream(self, system_prompt: str, user_message: str):
+    async def generate_stream(self, system_prompt: str, user_message: str, usage: dict | None = None):
         self.prompts.append(user_message)
         if self.fail:
             raise RuntimeError("Groq caído (simulado)")
         for c in self.chunks:
             yield c
+        if usage is not None and self.usage:
+            usage.update(self.usage)
 
 
 class FakeDecision:
@@ -143,6 +146,11 @@ async def client(ports, monkeypatch):
     # que es el que limpia DELETE /session/{id}. Aislado por test.
     monkeypatch.setattr(router, "_shared_checkpointer", MemorySaver())
     monkeypatch.setattr(router, "GOVERNOR", None)  # cuotas LLM06 limpias en cada test
+    from ai_agent_service.security.token_budget import MemoryCounterStore, TokenBudget
+
+    monkeypatch.setattr(router, "TOKEN_BUDGET", TokenBudget(  # sin Redis en tests de API: contadores en memoria
+        MemoryCounterStore(), user_tokens_per_day=10**9, global_tokens_per_day=10**9,
+        global_tokens_per_minute=10**9, global_requests_per_day=10**9))
     service = AssistantService(**ports, checkpointer=router._shared_checkpointer)
     app.dependency_overrides[router._get_assistant_service] = lambda: service
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://ai") as c:

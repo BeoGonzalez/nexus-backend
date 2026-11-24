@@ -10,6 +10,8 @@ from collections.abc import Iterable, Mapping
 from typing import Any, Protocol
 from uuid import UUID
 
+from ai_agent_service.infrastructure.embeddings import EMBEDDING_TAG
+
 MAX_TITLE = 200
 MAX_DESCRIPTION = 1000
 MAX_GENRES = 10
@@ -61,6 +63,7 @@ def build_records(products: Iterable[Mapping[str, Any]], embedder: TextEmbedder)
                 "genres": ", ".join(_genres(product)),
                 "platform": _platform(product),
                 "image_url": str(product.get("image_url") or "")[:500],
+                "embedding_model": EMBEDDING_TAG,
             },
         })
     return records

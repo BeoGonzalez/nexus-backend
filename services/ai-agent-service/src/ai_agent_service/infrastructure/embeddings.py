@@ -26,6 +26,8 @@ logger = logging.getLogger(__name__)
 
 MAX_SEQ_LENGTH = 128  # sentence_bert_config.json del modelo
 DIMENSIONS = 384
+# Marca que se guarda con cada vector indexado: la búsqueda solo acepta vectores de este modelo (LLM05/LLM09).
+EMBEDDING_TAG = "minilm-l12-onnx-int8@e8f8c211226b"
 
 # SHA-256 de los archivos en la revisión e8f8c211226b894fcb81acc59f3b34ba3efd5f42 (metadatos LFS de Hugging Face).
 MODEL_FILES: dict[str, str] = {

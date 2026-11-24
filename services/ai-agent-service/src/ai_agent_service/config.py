@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL_DIR: str = ""
     EMBEDDING_DIMENSIONS: int = 384
     VECTOR_SEARCH_TOP_K: int = 5
+    # Similitud coseno mínima para que un juego entre al contexto (medido: relevantes >= 0.35, ajenos <= 0.26).
+    VECTOR_MIN_SCORE: float = 0.30
 
     WIKIPEDIA_LANG: str = "es"
     WIKIPEDIA_TOP_K: int = 1
@@ -61,11 +63,20 @@ class Settings(BaseSettings):
     # Kill switch (Agentic v2 §3.3.8): false -> el asistente responde 503 sin invocar al modelo.
     ASSISTANT_ENABLED: bool = True
     # LLM06 Unbounded Consumption: cuotas por usuario (sub del JWT) y techo global por pod.
-    LLM_REQUESTS_PER_MINUTE: int = 10
-    LLM_REQUESTS_PER_DAY: int = 200
+    LLM_REQUESTS_PER_MINUTE: int = 6
+    LLM_REQUESTS_PER_DAY: int = 40
     LLM_MAX_CONCURRENT_STREAMS: int = 1
-    LLM_GLOBAL_REQUESTS_PER_DAY: int = 5000
+    # Presupuesto en TOKENS compartido entre pods (Redis). Alineado con la cuenta de Groq medida el 24-11-2026
+    # para openai/gpt-oss-120b: 8.000 tokens/min y 1.000 peticiones/día. Se deja margen para no tocar el techo.
+    LLM_GLOBAL_REQUESTS_PER_DAY: int = 800
+    LLM_GLOBAL_TOKENS_PER_MINUTE: int = 6000
+    LLM_GLOBAL_TOKENS_PER_DAY: int = 150_000
+    LLM_USER_TOKENS_PER_DAY: int = 20_000
+    # Redis de los contadores (vacío = REDIS_URL del servicio).
+    LLM_BUDGET_REDIS_URL: str = ""
     LLM_MAX_TOKENS: int = 1024
+    # gpt-oss es un modelo de razonamiento: "low" recorta ~70% de los tokens de salida sin perder la respuesta.
+    LLM_REASONING_EFFORT: str = "low"
     LLM_REQUEST_TIMEOUT_SECONDS: float = 30.0
     LLM_MAX_RETRIES: int = 1
     LLM_STREAM_TIMEOUT_SECONDS: float = 60.0
