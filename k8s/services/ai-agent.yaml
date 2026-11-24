@@ -17,7 +17,7 @@ spec:
     type: RollingUpdate
     rollingUpdate:
       maxSurge: 1
-      maxUnavailable: 0 # zero-downtime
+      maxUnavailable: 0 # zero-downtime (con embeddings ONNX el pod usa ~725Mi: caben dos durante el cambio)
   selector:
     matchLabels:
       app.kubernetes.io/name: ai-agent
@@ -158,12 +158,12 @@ spec:
           resources:
             requests:
               cpu: 250m
-              memory: 1536Mi
-              ephemeral-storage: 512Mi
+              memory: 768Mi # medido: ~725Mi con el modelo ONNX cargado (antes 1536Mi con PyTorch)
+              ephemeral-storage: 256Mi
             limits:
               cpu: 1000m
-              memory: 3Gi
-              ephemeral-storage: 4Gi
+              memory: 1536Mi
+              ephemeral-storage: 1Gi
           securityContext:
             runAsNonRoot: true
             runAsUser: 10001
@@ -181,7 +181,7 @@ spec:
       volumes:
         - name: tmp # único directorio escribible (readOnlyRootFilesystem)
           emptyDir:
-            sizeLimit: 3Gi
+            sizeLimit: 512Mi # el modelo viene en la imagen; /tmp ya no guarda la caché de HuggingFace
 ---
 apiVersion: v1
 kind: Service

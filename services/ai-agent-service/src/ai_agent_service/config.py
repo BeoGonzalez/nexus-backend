@@ -18,14 +18,21 @@ class Settings(BaseSettings):
     GROQ_TEMPERATURE: float = 0.1
 
     PINECONE_API_KEY: str = ""
-    PINECONE_INDEX_NAME: str = "nexus-games"
+    # Índice real del catálogo (el antiguo "nexus-games" no existe: la búsqueda devolvía siempre vacío).
+    PINECONE_INDEX_NAME: str = "nexus-catalog"
     PINECONE_NAMESPACE: str = "catalog"
 
     EMBEDDING_MODEL_NAME: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-    # LLM04 Supply Chain: commit exacto del modelo en HuggingFace (no "main"): un push al repo no entra sin revisión.
+    # LLM03 Supply Chain: commit exacto del modelo en HuggingFace (no "main"): un push al repo no entra sin revisión.
     EMBEDDING_MODEL_REVISION: str = "e8f8c211226b894fcb81acc59f3b34ba3efd5f42"
+    # Export ONNX oficial cuantizado (int8, AVX2): sin PyTorch. SHA-256 fijados en infrastructure/embeddings.py.
+    EMBEDDING_ONNX_FILE: str = "onnx/model_quint8_avx2.onnx"
+    # Directorio con el modelo ya verificado (la imagen lo trae en /app/models/minilm). Vacío = caché de HF.
+    EMBEDDING_MODEL_DIR: str = ""
     EMBEDDING_DIMENSIONS: int = 384
     VECTOR_SEARCH_TOP_K: int = 5
+    # Similitud coseno mínima para que un juego entre al contexto (medido: relevantes >= 0.35, ajenos <= 0.26).
+    VECTOR_MIN_SCORE: float = 0.30
 
     WIKIPEDIA_LANG: str = "es"
     WIKIPEDIA_TOP_K: int = 1
@@ -56,11 +63,20 @@ class Settings(BaseSettings):
     # Kill switch (Agentic v2 §3.3.8): false -> el asistente responde 503 sin invocar al modelo.
     ASSISTANT_ENABLED: bool = True
     # LLM06 Unbounded Consumption: cuotas por usuario (sub del JWT) y techo global por pod.
-    LLM_REQUESTS_PER_MINUTE: int = 10
-    LLM_REQUESTS_PER_DAY: int = 200
+    LLM_REQUESTS_PER_MINUTE: int = 6
+    LLM_REQUESTS_PER_DAY: int = 40
     LLM_MAX_CONCURRENT_STREAMS: int = 1
-    LLM_GLOBAL_REQUESTS_PER_DAY: int = 5000
+    # Presupuesto en TOKENS compartido entre pods (Redis). Alineado con la cuenta de Groq medida el 24-11-2026
+    # para openai/gpt-oss-120b: 8.000 tokens/min y 1.000 peticiones/día. Se deja margen para no tocar el techo.
+    LLM_GLOBAL_REQUESTS_PER_DAY: int = 800
+    LLM_GLOBAL_TOKENS_PER_MINUTE: int = 6000
+    LLM_GLOBAL_TOKENS_PER_DAY: int = 150_000
+    LLM_USER_TOKENS_PER_DAY: int = 20_000
+    # Redis de los contadores (vacío = REDIS_URL del servicio).
+    LLM_BUDGET_REDIS_URL: str = ""
     LLM_MAX_TOKENS: int = 1024
+    # gpt-oss es un modelo de razonamiento: "low" recorta ~70% de los tokens de salida sin perder la respuesta.
+    LLM_REASONING_EFFORT: str = "low"
     LLM_REQUEST_TIMEOUT_SECONDS: float = 30.0
     LLM_MAX_RETRIES: int = 1
     LLM_STREAM_TIMEOUT_SECONDS: float = 60.0

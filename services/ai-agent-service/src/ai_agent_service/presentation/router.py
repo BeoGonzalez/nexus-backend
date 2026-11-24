@@ -8,11 +8,18 @@ from nexus_security.jwt import TokenPayload
 from nexus_core.infrastructure.logging import log_security_event
 from ai_agent_service.security.context import UserContext
 from ai_agent_service.security.governor import QuotaExceeded, UsageGovernor
+from ai_agent_service.security.token_budget import (
+    MemoryCounterStore,
+    RedisCounterStore,
+    ResilientCounterStore,
+    TokenBudget,
+)
 from ai_agent_service.security.memory import ThreadRegistry, thread_id_for
 from ai_agent_service.application.dtos import ChatRequest
 from ai_agent_service.application.services import AssistantService
 from ai_agent_service.infrastructure.cheapshark_adapter import CheapSharkPriceAdapter
-from ai_agent_service.infrastructure.embeddings import HuggingFaceEmbeddingAdapter
+from ai_agent_service.infrastructure.catalog_client import CatalogVerifier
+from ai_agent_service.infrastructure.embeddings import OnnxEmbeddingAdapter
 from ai_agent_service.infrastructure.laya_adapter import LayaDecisionAdapter
 from ai_agent_service.infrastructure.llm import GroqLLMAdapter
 from ai_agent_service.infrastructure.pinecone_store import PineconeVectorStoreAdapter
@@ -55,7 +62,7 @@ def _get_assistant_service() -> AssistantService:
     )
 
     return AssistantService(
-        embedding_port=HuggingFaceEmbeddingAdapter(model_name=settings.EMBEDDING_MODEL_NAME),
+        embedding_port=OnnxEmbeddingAdapter(model_name=settings.EMBEDDING_MODEL_NAME),
         llm_port=GroqLLMAdapter(
             api_key=settings.GROQ_API_KEY,
             model_name=settings.GROQ_MODEL_NAME,
@@ -74,6 +81,7 @@ def _get_assistant_service() -> AssistantService:
         gaming_news_port=gaming_news_adapter,
         price_comparison_port=price_comparison_adapter,
         email_port=email_adapter,
+        catalog_port=CatalogVerifier(settings.CATALOG_SERVICE_URL),
     )
 
 
@@ -100,7 +108,29 @@ def _registry() -> ThreadRegistry:
     return _REGISTRY[1]
 
 
+def _token_budget() -> TokenBudget:
+    """Presupuesto de tokens compartido entre pods (Redis) con respaldo local si Redis no responde (LLM06)."""
+    global TOKEN_BUDGET
+    if TOKEN_BUDGET is None:
+        settings = get_settings()
+        store = ResilientCounterStore(
+            RedisCounterStore(settings.LLM_BUDGET_REDIS_URL or settings.REDIS_URL), MemoryCounterStore()
+        )
+        TOKEN_BUDGET = TokenBudget(
+            store,
+            user_tokens_per_day=settings.LLM_USER_TOKENS_PER_DAY,
+            global_tokens_per_day=settings.LLM_GLOBAL_TOKENS_PER_DAY,
+            global_tokens_per_minute=settings.LLM_GLOBAL_TOKENS_PER_MINUTE,
+            global_requests_per_day=settings.LLM_GLOBAL_REQUESTS_PER_DAY,
+        )
+    return TOKEN_BUDGET
+
+
+# Límites de todo el sitio: 503 (no es culpa del usuario); los individuales: 429.
+_SITE_WIDE_LIMITS = {"disabled", "global_budget", "global_tokens_day", "global_tokens_minute", "global_requests_day"}
+
 GOVERNOR: UsageGovernor | None = None
+TOKEN_BUDGET: TokenBudget | None = None
 _REGISTRY: tuple[MemorySaver, ThreadRegistry] | None = None
 
 
@@ -114,12 +144,18 @@ async def chat_stream(
     user: TokenPayload = Depends(get_current_user),
     service: AssistantService = Depends(_get_assistant_service),
 ) -> StreamingResponse:
-    # Hook sessionStart: kill switch y cuotas ANTES de tocar el modelo (LLM06, Agentic v2 §3.3.8).
+    # Hook sessionStart: kill switch, cuotas y presupuesto de tokens ANTES de tocar el modelo (LLM06, Agentic v2 §3.3.8).
+    budget = _token_budget()
     try:
         lease = _governor().acquire(user.sub)
+        try:
+            await budget.check(user.sub)
+        except QuotaExceeded:
+            lease.release()
+            raise
     except QuotaExceeded as exc:
         log_security_event("llm.quota_exceeded", user_sub=user.sub, reason=exc.reason)
-        if exc.reason in ("disabled", "global_budget"):
+        if exc.reason in _SITE_WIDE_LIMITS:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="El asistente no está disponible en este momento.",
@@ -142,6 +178,7 @@ async def chat_stream(
                 chat_history=body.to_chat_messages(),
                 session_id=thread_id,
                 user=_user_context(user),
+                on_usage=lambda tokens: budget.record(user.sub, tokens),
             ):
                 yield event
         finally:

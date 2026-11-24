@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 
 from langgraph.checkpoint.memory import MemorySaver
 from langsmith import traceable
@@ -24,6 +24,7 @@ from ai_agent_service.config import get_settings
 from ai_agent_service.security.context import UserContext
 from ai_agent_service.security.grounding import extract_amounts, ungrounded_amounts
 from ai_agent_service.security.memory import sanitize_history
+from ai_agent_service.security.token_budget import estimate_tokens
 from ai_agent_service.security.output_guard import StreamingOutputGuard
 from ai_agent_service.security.prompt import MAX_QUERY_CHARS, SYSTEM_PROMPT, build_user_message
 from ai_agent_service.security.sanitize import detect_injection, mask_pii, sanitize_text
@@ -44,8 +45,10 @@ class AssistantService:
         gaming_news_port: GamingNewsPort | None = None,
         price_comparison_port: PriceComparisonPort | None = None,
         email_port: EmailPort | None = None,
+        catalog_port=None,
     ) -> None:
         self._embedding = embedding_port
+        self._catalog = catalog_port  # LLM07: precio/stock en vivo desde el servicio de catálogo
         self._llm = llm_port
         self._vector_store = vector_store_port
         self._external_knowledge = external_knowledge_port
@@ -207,8 +210,11 @@ class AssistantService:
         chat_history: list[ChatMessage] | None = None,
         session_id: str = "default-session",
         user: UserContext | None = None,
+        on_usage: Callable[[int], Awaitable[None]] | None = None,
     ) -> AsyncIterator[str]:
         """Stream SSE con los hooks de seguridad de OWASP LLM Top 10 2026 / Agentic v2.
+
+        `on_usage(tokens)` recibe el consumo real del proveedor (o una estimación conservadora) al terminar (LLM06).
 
         `session_id` aquí es el thread_id YA ligado al usuario (security.memory.thread_id_for) por el router.
         """
@@ -256,6 +262,8 @@ class AssistantService:
             embedding = await self._embedding.embed_text(llm_query)
             found = await self._vector_store.similarity_search(embedding, top_k=min(settings.VECTOR_SEARCH_TOP_K, 10))
             video_games = [vg for vg in found if _is_valid_catalog_record(vg)][:10]
+            if self._catalog is not None:
+                video_games = await self._catalog.verify(video_games)
         except Exception as e:
             logger.warning("RAG no disponible, se responde sin catálogo: %s", type(e).__name__)
             log_security_event("llm.degraded", level=logging.INFO, user_sub=user_sub, component="vector_store")
@@ -332,9 +340,12 @@ class AssistantService:
         guard = StreamingOutputGuard(max_chars=settings.LLM_MAX_OUTPUT_CHARS)
         emitted: list[str] = []
         llm_failed = False
+        provider_usage: dict = {}
+        raw_output: list[str] = []
         try:
             async with asyncio.timeout(settings.LLM_STREAM_TIMEOUT_SECONDS):
-                async for chunk in self._llm.generate_stream(SYSTEM_PROMPT, user_message):
+                async for chunk in self._llm.generate_stream(SYSTEM_PROMPT, user_message, usage=provider_usage):
+                    raw_output.append(chunk)
                     safe = guard.feed(chunk)
                     if safe:
                         emitted.append(safe)
@@ -365,6 +376,16 @@ class AssistantService:
             )
 
         full_response = "".join(emitted)
+
+        # ---- Presupuesto de tokens (LLM06): uso real del proveedor; si no lo informa, estimación que nunca es 0
+        if on_usage is not None:
+            tokens = int(provider_usage.get("total_tokens") or 0) or estimate_tokens(
+                SYSTEM_PROMPT + user_message + "".join(raw_output)
+            )
+            try:
+                await on_usage(tokens)
+            except Exception as e:
+                logger.warning("No se pudo registrar el consumo del modelo: %s", type(e).__name__)
 
         # ---- Grounding de importes (LLM07): aviso si la respuesta menciona precios que no están en los datos
         allowed_amounts = {int(vg.price_clp) for vg in video_games} | extract_amounts(price_comparison)

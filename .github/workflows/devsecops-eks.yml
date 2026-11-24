@@ -551,7 +551,7 @@ jobs:
             kubectl -n "$EKS_NAMESPACE" rollout undo "deployment/${svc}" --to-revision="$rev" || status=1
           done < "$RUNNER_TEMP/revisions.tsv"
           while read -r svc _; do
-            kubectl -n "$EKS_NAMESPACE" rollout status "deployment/${svc}" --timeout=300s || status=1
+            kubectl -n "$EKS_NAMESPACE" rollout status "deployment/${svc}" --timeout=600s || status=1
           done < "$RUNNER_TEMP/revisions.tsv"
           kubectl -n "$EKS_NAMESPACE" get deploy -o wide || true
           exit "$status"

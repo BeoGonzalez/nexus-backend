@@ -10,6 +10,7 @@ except ImportError:
 from ai_agent_service.domain.ports import VectorStorePort
 from ai_agent_service.domain.entities import Genre, VideoGame
 from ai_agent_service.config import get_settings
+from ai_agent_service.infrastructure.embeddings import EMBEDDING_TAG
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,8 @@ class PineconeVectorStoreAdapter(VectorStorePort):
         self._index_name = index_name or settings.PINECONE_INDEX_NAME
         self._namespace = namespace or settings.PINECONE_NAMESPACE
         self._fallback = fallback_store
+        self._min_score = settings.VECTOR_MIN_SCORE
+        self._model_tag = EMBEDDING_TAG
 
         self._index = None
         if self._api_key and self._api_key != "your-pinecone-api-key":
@@ -78,13 +81,23 @@ class PineconeVectorStoreAdapter(VectorStorePort):
                     "vector": embedding,
                     "top_k": top_k,
                     "include_metadata": True,
+                    # LLM05/LLM09: solo vectores generados por nuestro modelo (filtro en el servidor)...
+                    "filter": {"embedding_model": {"$eq": self._model_tag}},
                 }
                 if self._namespace:
                     kwargs["namespace"] = self._namespace
 
                 response = self._index.query(**kwargs)
                 matches = response.get("matches", [])
-                return [self._match_to_entity(m) for m in matches]
+                # ...y verificación local (defensa en profundidad) + similitud mínima para no meter ruido al prompt.
+                trusted = [
+                    m for m in matches
+                    if (m.get("metadata") or {}).get("embedding_model") == self._model_tag
+                    and float(m.get("score") or 0.0) >= self._min_score
+                ]
+                if len(trusted) < len(matches):
+                    logger.info("Descartados %d resultados del vector store (marca o similitud)", len(matches) - len(trusted))
+                return [self._match_to_entity(m) for m in trusted]
             except Exception as exc:
                 logger.error("Error querying Pinecone index '%s': %s", self._index_name, exc)
                 return []
