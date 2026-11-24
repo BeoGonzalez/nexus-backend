@@ -27,7 +27,7 @@ def test_normal_text_passes_through_unchanged_across_chunks():
         "tvly-" + "dev-AbCdEf123456GhIjKl",
         "AKIA" + "IOSFODNN7EXAMPLE",
         "sk-" + "proj-abcdefghijklmnopqrstuvwxyz123456",
-        "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjMifQ.c2lnbmF0dXJlLXNpZ25hdHVyZQ",
+        "eyJhbGciOiJSUzI1NiJ9" + "." + "eyJzdWIiOiIxMjMifQ" + "." + "c2lnbmF0dXJlLXNpZ25hdHVyZQ",
     ],
 )
 def test_secrets_are_redacted(secret):

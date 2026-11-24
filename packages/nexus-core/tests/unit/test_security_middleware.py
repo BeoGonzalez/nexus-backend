@@ -9,6 +9,9 @@ from fastapi import FastAPI, HTTPException
 from nexus_core.infrastructure.logging import setup_service_logging
 from nexus_core.presentation.security import SecuritySettings, configure_service, install_security_middleware
 
+# JWT ficticio partido en trozos: no hay token literal en el repo (evita falsos positivos de escáneres).
+_FAKE_JWT = "eyJhbGciOiJIUzI1NiJ9" + "." + "eyJzdWIiOiIxIn0" + "." + "c2ln"
+
 
 def _app(settings: SecuritySettings) -> FastAPI:
     app = FastAPI()
@@ -97,13 +100,13 @@ async def test_kubelet_probe_with_pod_ip_host_reaches_health(settings):
 async def test_401_and_403_emit_security_events(settings, capsys, path, event):
     setup_service_logging("svc-mw")
     async with _client(_app(settings)) as c:
-        await c.get(path, headers={"Authorization": "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2ln"})
+        await c.get(path, headers={"Authorization": "Bearer " + _FAKE_JWT})
     lines = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.startswith("{")]
     events = [e for e in lines if e.get("security_event") == event]
     assert events, lines
     assert events[0]["path"] == path
     assert events[0]["client_ip"] == "203.0.113.7"
-    assert "eyJhbGciOiJIUzI1NiJ9" not in json.dumps(lines)
+    assert _FAKE_JWT.split(".")[0] not in json.dumps(lines)
 
 
 async def test_configure_service_disables_api_docs_by_default(monkeypatch):

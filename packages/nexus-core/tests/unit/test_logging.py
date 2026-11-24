@@ -1,3 +1,4 @@
+import base64
 import json
 import logging
 
@@ -38,11 +39,19 @@ import pytest
 from nexus_core.infrastructure.logging import log_security_event, redact
 
 
+def _b64(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+
+# JWT ficticio armado en tiempo de ejecución: no hay token literal en el repo (evita falsos positivos de escáneres).
+_FAKE_JWT = ".".join((_b64(b'{"alg":"HS256"}'), _b64(b'{"sub":"1"}'), _b64(b"signature")))
+
+
 @pytest.mark.parametrize(
     "raw, leaked",
     [
-        ("Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl", "eyJhbGciOiJIUzI1NiJ9"),
-        ("token=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl", "c2lnbmF0dXJl"),  # gitleaks:allow (valor ficticio)
+        ("Authorization: Bearer " + _FAKE_JWT, _FAKE_JWT.split(".")[0]),
+        ("token=" + _FAKE_JWT, _FAKE_JWT.split(".")[2]),
         ('{"password": "Sup3rS3cret!"}', "Sup3rS3cret!"),
         ("password=hunter2&x=1", "hunter2"),
         ("api_key=gsk_abcdef123456", "gsk_abcdef123456"),  # gitleaks:allow (valor ficticio)
