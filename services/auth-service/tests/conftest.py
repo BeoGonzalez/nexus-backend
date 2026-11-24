@@ -47,9 +47,6 @@ class FakeIdentityProvider(IdentityProviderPort):
         self._call("confirm_forgot_password", email, code, new_password)
         return True
 
-    async def get_user_from_token(self, token) -> dict[str, Any]:
-        self._call("get_user_from_token", token)
-        return {}
 
 
 @pytest.fixture

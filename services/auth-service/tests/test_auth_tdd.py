@@ -62,9 +62,6 @@ class MockCognitoIdentityProvider(IdentityProviderPort):
     async def confirm_forgot_password(self, email: str, code: str, new_password: str) -> bool:
         return True
 
-    async def get_user_from_token(self, token: str) -> dict:
-        payload = decode_access_token(token, "a-very-secure-32-byte-secret-key-nexus", "HS256")
-        return {"sub": payload.sub, "email": payload.email, "role": payload.role}
 
 
 def test_calculate_secret_hash():

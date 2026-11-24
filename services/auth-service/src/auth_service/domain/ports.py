@@ -55,7 +55,3 @@ class IdentityProviderPort(ABC):
         """Confirma la nueva contraseña mediante el código de recuperación."""
         ...
 
-    @abstractmethod
-    async def get_user_from_token(self, token: str) -> dict[str, Any]:
-        """Decodifica y valida las credenciales o atributos del usuario."""
-        ...

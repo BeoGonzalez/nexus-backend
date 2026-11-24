@@ -19,6 +19,12 @@ INVALID_CREDENTIALS = "Correo electrónico o contraseña incorrectos."
 _SCRYPT_N, _SCRYPT_R, _SCRYPT_P = 2**14, 8, 1
 
 
+def _log_cognito_failure(operation: str, exc: Exception) -> None:
+    """A09: registra la operación y el código de error de AWS, nunca el mensaje crudo (puede traer datos del usuario)."""
+    code = getattr(exc, "response", {}).get("Error", {}).get("Code") or type(exc).__name__
+    logger.error("Fallo de Cognito en %s (codigo=%s)", operation, code)
+
+
 def _hash_password(password: str, salt: bytes | None = None) -> str:
     """Hash scrypt con salt aleatorio: formato `scrypt$<salt_hex>$<hash_hex>`."""
     salt = salt if salt is not None else secrets.token_bytes(16)
@@ -120,7 +126,7 @@ class CognitoAdapter(IdentityProviderPort):
             except client.exceptions.PasswordResetRequiredException:
                 raise UnauthorizedException("Se requiere cambio de contraseña.")
             except Exception as exc:
-                logger.error("Error inesperado en Cognito initiate_auth: %s", exc)
+                _log_cognito_failure("initiate_auth", exc)
                 raise UnauthorizedException("El servicio de autenticación no está disponible. Inténtalo más tarde.")
 
         response = await asyncio.to_thread(_call_cognito)
@@ -163,7 +169,7 @@ class CognitoAdapter(IdentityProviderPort):
             except client.exceptions.InvalidPasswordException as exc:
                 raise BusinessRuleViolationException("La contraseña no cumple la política: mínimo 8 caracteres con mayúsculas, minúsculas, números y símbolos.")
             except Exception as exc:
-                logger.error("Error en Cognito sign_up: %s", exc)
+                _log_cognito_failure("sign_up", exc)
                 raise BusinessRuleViolationException("No fue posible registrar la cuenta. Inténtalo más tarde.")
 
         response = await asyncio.to_thread(_call_signup)
@@ -198,7 +204,7 @@ class CognitoAdapter(IdentityProviderPort):
             except client.exceptions.ExpiredCodeException:
                 raise BusinessRuleViolationException("El código de verificación ha expirado.")
             except Exception as exc:
-                logger.error("Error en confirm_sign_up: %s", exc)
+                _log_cognito_failure("confirm_sign_up", exc)
                 raise BusinessRuleViolationException("No fue posible confirmar la cuenta.")
 
         return await asyncio.to_thread(_call_confirm)
@@ -224,7 +230,7 @@ class CognitoAdapter(IdentityProviderPort):
                 client.resend_confirmation_code(**kwargs)
                 return True
             except Exception as exc:
-                logger.error("Error en resend_confirmation_code: %s", exc)
+                _log_cognito_failure("resend_confirmation_code", exc)
                 raise BusinessRuleViolationException("No fue posible reenviar el código. Inténtalo más tarde.")
 
         return await asyncio.to_thread(_call_resend)
@@ -252,7 +258,7 @@ class CognitoAdapter(IdentityProviderPort):
                     ClientId=self.settings.COGNITO_APP_CLIENT_ID,
                 )
             except Exception as exc:
-                logger.error("Error en REFRESH_TOKEN_AUTH: %s", exc)
+                _log_cognito_failure("refresh", exc)
                 raise UnauthorizedException("El token de actualización ha expirado o es inválido.")
 
         response = await asyncio.to_thread(_call_refresh)
@@ -286,7 +292,7 @@ class CognitoAdapter(IdentityProviderPort):
                 client.forgot_password(**kwargs)
                 return True
             except Exception as exc:
-                logger.error("Error en forgot_password: %s", exc)
+                _log_cognito_failure("forgot_password", exc)
                 raise BusinessRuleViolationException("No fue posible iniciar la recuperación. Inténtalo más tarde.")
 
         return await asyncio.to_thread(_call_forgot)
@@ -311,21 +317,10 @@ class CognitoAdapter(IdentityProviderPort):
                 client.confirm_forgot_password(**kwargs)
                 return True
             except Exception as exc:
-                logger.error("Error en confirm_forgot_password: %s", exc)
+                _log_cognito_failure("confirm_forgot_password", exc)
                 raise BusinessRuleViolationException("No fue posible restablecer la contraseña.")
 
         return await asyncio.to_thread(_call_confirm_forgot)
-
-    async def get_user_from_token(self, token: str) -> dict[str, Any]:
-        import jwt
-        # Decodificación de claims sin validar firma si viene validado por Gateway
-        decoded = jwt.decode(token, options={"verify_signature": False})
-        return {
-            "sub": decoded.get("sub", ""),
-            "email": decoded.get("email", ""),
-            "name": decoded.get("name", "Gamer"),
-            "role": "admin" if "admin" in decoded.get("cognito:groups", []) else "customer",
-        }
 
     # =========================================================================
     # FALLBACK LOCAL DETERMINISTA PARA TESTING & DESARROLLO SIN AWS COGNITO

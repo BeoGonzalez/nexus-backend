@@ -258,3 +258,28 @@ async def test_unexpected_cognito_errors_do_not_leak_internal_details(cognito, o
         await getattr(adapter, op)(*args)
     text = str(getattr(exc.value, "message", exc.value))
     assert "arn:aws" not in text and "RequestId" not in text and "InternalErrorException" not in text
+
+
+def test_adapter_does_not_offer_unverified_token_decoding():
+    # A07/A08: decodificar un JWT sin verificar la firma aceptaría tokens falsificados.
+    # La verificación real vive en nexus_security (RS256 contra el JWKS del pool).
+    assert not hasattr(CognitoAdapter, "get_user_from_token")
+
+
+@pytest.mark.parametrize(
+    "op, call, args",
+    [
+        ("initiate_auth", "refresh_tokens", ("refresh-token-value", "a@b.cl")),
+        ("forgot_password", "forgot_password", ("a@b.cl",)),
+        ("confirm_forgot_password", "confirm_forgot_password", ("a@b.cl", "123456", "N3w-Passw0rd!")),
+    ],
+)
+async def test_cognito_failures_log_only_the_error_code(cognito, caplog, op, call, args):
+    # A09: el log registra el código de AWS, nunca el mensaje crudo (puede incluir datos del usuario o tokens).
+    adapter, stub = cognito
+    stub.add_client_error(op, service_error_code="InternalErrorException", service_message="detalle-sensible-xyz")
+    with pytest.raises((UnauthorizedException, BusinessRuleViolationException)):
+        await getattr(adapter, call)(*args)
+    logged = " ".join(r.getMessage() for r in caplog.records)
+    assert "InternalErrorException" in logged
+    assert "detalle-sensible-xyz" not in logged
