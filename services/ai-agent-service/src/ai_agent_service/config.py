@@ -18,12 +18,17 @@ class Settings(BaseSettings):
     GROQ_TEMPERATURE: float = 0.1
 
     PINECONE_API_KEY: str = ""
-    PINECONE_INDEX_NAME: str = "nexus-games"
+    # Índice real del catálogo (el antiguo "nexus-games" no existe: la búsqueda devolvía siempre vacío).
+    PINECONE_INDEX_NAME: str = "nexus-catalog"
     PINECONE_NAMESPACE: str = "catalog"
 
     EMBEDDING_MODEL_NAME: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-    # LLM04 Supply Chain: commit exacto del modelo en HuggingFace (no "main"): un push al repo no entra sin revisión.
+    # LLM03 Supply Chain: commit exacto del modelo en HuggingFace (no "main"): un push al repo no entra sin revisión.
     EMBEDDING_MODEL_REVISION: str = "e8f8c211226b894fcb81acc59f3b34ba3efd5f42"
+    # Export ONNX oficial cuantizado (int8, AVX2): sin PyTorch. SHA-256 fijados en infrastructure/embeddings.py.
+    EMBEDDING_ONNX_FILE: str = "onnx/model_quint8_avx2.onnx"
+    # Directorio con el modelo ya verificado (la imagen lo trae en /app/models/minilm). Vacío = caché de HF.
+    EMBEDDING_MODEL_DIR: str = ""
     EMBEDDING_DIMENSIONS: int = 384
     VECTOR_SEARCH_TOP_K: int = 5
 

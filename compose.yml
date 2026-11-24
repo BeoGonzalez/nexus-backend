@@ -214,7 +214,7 @@ services:
       - GROQ_MODEL_NAME=${GROQ_MODEL_NAME:-openai/gpt-oss-120b}
       - GROQ_TEMPERATURE=0.1
       - PINECONE_API_KEY=${PINECONE_API_KEY:-}
-      - PINECONE_INDEX_NAME=${PINECONE_INDEX_NAME:-nexus-games}
+      - PINECONE_INDEX_NAME=${PINECONE_INDEX_NAME:-nexus-catalog}
       - PINECONE_NAMESPACE=${PINECONE_NAMESPACE:-catalog}
       - TAVILY_API_KEY=${TAVILY_API_KEY:-}
       - CATALOG_SERVICE_URL=http://catalog-service:8000

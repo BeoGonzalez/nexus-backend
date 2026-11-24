@@ -29,6 +29,11 @@ COPY services/ai-agent-service ./services/ai-agent-service
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-editable --package ai-agent-service
 
+# Modelo de embeddings (ONNX int8, sin PyTorch) integrado en la imagen: revisión fijada y SHA-256 verificado
+# (OWASP LLM03). El pod no descarga nada de Hugging Face al arrancar.
+RUN /app/.venv/bin/python -c "from ai_agent_service.infrastructure.embeddings import download_model; download_model('/app/models/minilm')" \
+    && rm -rf /app/models/minilm/.cache
+
 # ------------------------------------------------------------------------------ runtime
 FROM python:3.11-slim-bookworm@sha256:a83ba18aef0f865b1a4a611c2cf460fe446f2795673bbb9fe43be570439e3b39 AS runtime
 
@@ -37,7 +42,9 @@ ENV PYTHONUNBUFFERED=1 \
     PATH="/app/.venv/bin:$PATH" \
     HOME=/tmp \
     TMPDIR=/tmp \
-    HF_HOME=/tmp/hf
+    HF_HOME=/tmp/hf \
+    HF_HUB_OFFLINE=1 \
+    EMBEDDING_MODEL_DIR=/app/models/minilm
 
 # Parches de seguridad del SO; fuera pip/setuptools/wheel del Python base (no se usan en runtime).
 # hadolint ignore=DL3005
@@ -51,6 +58,7 @@ RUN apt-get update \
 WORKDIR /app
 # Propiedad de root: el usuario de la app solo puede leer el código y las dependencias.
 COPY --from=builder /app/.venv /app/.venv
+COPY --from=builder /app/models /app/models
 
 USER 10001:10001
 EXPOSE 8000

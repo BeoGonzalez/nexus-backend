@@ -16,8 +16,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("Starting %s on port %d...", settings.SERVICE_NAME, settings.PORT)
     # Warmup opcional del modelo de embeddings
     try:
-        from ai_agent_service.infrastructure.embeddings import HuggingFaceEmbeddingAdapter
-        adapter = HuggingFaceEmbeddingAdapter(model_name=settings.EMBEDDING_MODEL_NAME)
+        from ai_agent_service.infrastructure.embeddings import OnnxEmbeddingAdapter
+        adapter = OnnxEmbeddingAdapter(model_name=settings.EMBEDDING_MODEL_NAME)
         await adapter.embed_text("warmup")
         logger.info("Embedding model warmed up.")
     except Exception as exc:

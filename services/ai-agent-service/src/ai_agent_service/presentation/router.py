@@ -12,7 +12,7 @@ from ai_agent_service.security.memory import ThreadRegistry, thread_id_for
 from ai_agent_service.application.dtos import ChatRequest
 from ai_agent_service.application.services import AssistantService
 from ai_agent_service.infrastructure.cheapshark_adapter import CheapSharkPriceAdapter
-from ai_agent_service.infrastructure.embeddings import HuggingFaceEmbeddingAdapter
+from ai_agent_service.infrastructure.embeddings import OnnxEmbeddingAdapter
 from ai_agent_service.infrastructure.laya_adapter import LayaDecisionAdapter
 from ai_agent_service.infrastructure.llm import GroqLLMAdapter
 from ai_agent_service.infrastructure.pinecone_store import PineconeVectorStoreAdapter
@@ -55,7 +55,7 @@ def _get_assistant_service() -> AssistantService:
     )
 
     return AssistantService(
-        embedding_port=HuggingFaceEmbeddingAdapter(model_name=settings.EMBEDDING_MODEL_NAME),
+        embedding_port=OnnxEmbeddingAdapter(model_name=settings.EMBEDDING_MODEL_NAME),
         llm_port=GroqLLMAdapter(
             api_key=settings.GROQ_API_KEY,
             model_name=settings.GROQ_MODEL_NAME,

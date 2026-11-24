@@ -98,7 +98,7 @@ def forbid_real_providers(monkeypatch):
 
     monkeypatch.setattr(llm.GroqLLMAdapter, "__init__", _boom)
     monkeypatch.setattr(pinecone_store.PineconeVectorStoreAdapter, "__init__", _boom)
-    monkeypatch.setattr(embeddings.HuggingFaceEmbeddingAdapter, "__init__", _boom)
+    monkeypatch.setattr(embeddings.OnnxEmbeddingAdapter, "__init__", _boom)
 
 
 @pytest.fixture
