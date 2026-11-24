@@ -188,7 +188,17 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
       - run: uv sync --locked --all-packages
-      - run: uv run --no-sync pytest -m bug -p no:cacheprovider -rf
+      - name: Tests marcados @pytest.mark.bug
+        # pytest sale con 5 cuando no hay tests seleccionados: sin bugs conocidos pendientes = éxito.
+        run: |
+          set +e
+          uv run --no-sync pytest -m bug -p no:cacheprovider -rf
+          rc=$?
+          if [ "$rc" -eq 5 ]; then
+            echo "::notice::No quedan bugs conocidos marcados con @pytest.mark.bug."
+            exit 0
+          fi
+          exit "$rc"
 
   # ---------------------------------------------------------------------------------------------- A02
   iac:
