@@ -493,10 +493,20 @@ jobs:
           uvx --from "checkov==${CHECKOV_VERSION}" checkov -f rendered.yaml --framework kubernetes \
             --skip-check CKV_K8S_35 --compact --quiet
 
+      # El endpoint público de EKS solo acepta IPs concretas (terraform: eks_public_access_cidrs) y los runners
+      # de GitHub no tienen IP fija: se autoriza la /32 del runner solo mientras dura el despliegue.
+      - name: Autorizar temporalmente la IP del runner en el API de EKS
+        run: bash .github/scripts/eks-public-access.sh open
+
       - name: kubectl apply y rollout
         run: |
           set -euo pipefail
           aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER_NAME"
+          for i in $(seq 1 12); do # el cambio de publicAccessCidrs puede tardar en propagarse
+            kubectl version --request-timeout=10s > /dev/null 2>&1 && break
+            [ "$i" -eq 12 ] && { echo "::error::El API de EKS no responde desde el runner"; exit 1; }
+            echo "API de EKS aún no accesible; reintento ${i}/12"; sleep 15
+          done
           kubectl get namespace "$EKS_NAMESPACE" > /dev/null
           for svc in $SERVICES; do # los Secrets se crean fuera de Git (nexus-infrastructure/k8s/scripts/deploy.sh)
             kubectl -n "$EKS_NAMESPACE" get secret "${svc}-env" > /dev/null \
@@ -508,3 +518,8 @@ jobs:
             kubectl -n "$EKS_NAMESPACE" rollout status "deployment/${svc}" --timeout=600s
           done
           kubectl -n "$EKS_NAMESPACE" get deploy -o wide
+
+      # Se ejecuta aunque el despliegue falle o se cancele: la IP del runner no queda autorizada.
+      - name: Revocar la IP del runner del API de EKS
+        if: always() && env.RUNNER_CIDR_ADDED == 'true'
+        run: bash .github/scripts/eks-public-access.sh close
