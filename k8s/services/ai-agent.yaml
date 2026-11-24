@@ -1,0 +1,238 @@
+# ai-agent: Deployment + Service + HPA + PDB.
+# Flujo (Learner Lab, sin AWS Load Balancer Controller): API Gateway (TLS) -> VPC Link -> NLB:30087
+#   -> nodo:30087 (NodePort) -> Service:80 -> pod:8000
+# La imagen la fija el pipeline por digest (kustomize edit set image nexus-ai-agent=<ecr>@sha256:...).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-agent
+  labels:
+    app.kubernetes.io/name: ai-agent
+    app.kubernetes.io/component: backend
+spec:
+  # Sin `replicas`: las gestiona el HPA (minReplicas=1).
+  revisionHistoryLimit: 3
+  progressDeadlineSeconds: 600
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0 # zero-downtime
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ai-agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ai-agent
+        app.kubernetes.io/component: backend
+    spec:
+      serviceAccountName: nexus-app # lo crea nexus-infrastructure/k8s/base (sin permisos en la API)
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 40
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      affinity:
+        podAntiAffinity: # preferente: con 3 nodos en el lab no debe bloquear el scheduling
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: ai-agent
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: ai-agent
+      containers:
+        - name: app
+          image: nexus-ai-agent
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: nexus-config # no sensible (configMapGenerator de kustomization.yaml)
+          env:
+            - name: PORT
+              value: "8000"
+            - name: HOME
+              value: /tmp
+            - name: OTEL_SERVICE_NAME
+              value: ai-agent-service
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: k8s.pod.name=$(POD_NAME),k8s.deployment.name=ai-agent
+            - name: HF_HOME # caché de modelos de HuggingFace en el volumen temporal
+              value: /tmp/hf
+            # Secretos: SOLO por referencia a un Secret existente creado fuera de Git
+            # (ver k8s/templates/secret.example.yaml)
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ai-agent-env
+                  key: REDIS_URL
+            - name: GROQ_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ai-agent-env
+                  key: GROQ_API_KEY
+            - name: PINECONE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ai-agent-env
+                  key: PINECONE_API_KEY
+            - name: TAVILY_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ai-agent-env
+                  key: TAVILY_API_KEY
+            - name: LANGCHAIN_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ai-agent-env
+                  key: LANGCHAIN_API_KEY
+            - name: SMTP_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ai-agent-env
+                  key: SMTP_USER
+            - name: SMTP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ai-agent-env
+                  key: SMTP_PASSWORD
+            - name: GMAIL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ai-agent-env
+                  key: GMAIL_USER
+            - name: GMAIL_APP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ai-agent-env
+                  key: GMAIL_APP_PASSWORD
+            - name: SERVICE_ENV
+              valueFrom:
+                secretKeyRef:
+                  name: ai-agent-env
+                  key: SERVICE_ENV
+          startupProbe:
+            httpGet:
+              path: /api/v1/assistant/health
+              port: http
+            periodSeconds: 10
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /api/v1/assistant/health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe: # distinta de readiness: un fallo de una dependencia no debe reiniciar el pod
+            tcpSocket:
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          lifecycle:
+            preStop: # da tiempo al NLB (deregistration_delay = 30 s) antes de cerrar el proceso
+              sleep:
+                seconds: 10
+          resources:
+            requests:
+              cpu: 250m
+              memory: 1536Mi
+              ephemeral-storage: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 3Gi
+              ephemeral-storage: 4Gi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            allowPrivilegeEscalation: false
+            privileged: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp # único directorio escribible (readOnlyRootFilesystem)
+          emptyDir:
+            sizeLimit: 3Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-agent
+  labels:
+    app.kubernetes.io/name: ai-agent
+spec:
+  type: NodePort # el NLB interno de Terraform registra los nodos en este puerto (target-type instance)
+  externalTrafficPolicy: Cluster
+  selector:
+    app.kubernetes.io/name: ai-agent
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: http
+      nodePort: 30087 # = var.api_services de nexus-infrastructure
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ai-agent
+  labels:
+    app.kubernetes.io/name: ai-agent
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ai-agent
+  minReplicas: 1
+  maxReplicas: 2
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ai-agent
+  labels:
+    app.kubernetes.io/name: ai-agent
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ai-agent

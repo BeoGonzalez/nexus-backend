@@ -1,34 +1,112 @@
-# Byte-compiled / optimized / DLL files
+# ==============================================================================
+# Python
+# ==============================================================================
 __pycache__/
 *.py[cod]
 *$py.class
+*.so
+.eggs/
+*.egg-info/
+*.egg
+dist/
+build/
+pip-wheel-metadata/
 
-# Virtual Environments
+# Entornos virtuales (uv crea .venv/)
 .venv/
-env/
 venv/
+env/
 ENV/
 env.bak/
 venv.bak/
 
-# Environment Variables
-.env*
-.env.local
-.env.*.local
-
-# pytest
+# ==============================================================================
+# Tests, cobertura y linters
+# ==============================================================================
 .pytest_cache/
 .coverage
-htmlcov/
+.coverage.*
+*.cover
 coverage.xml
+htmlcov/
+.hypothesis/
+.tox/
+.nox/
+.cache/
+.ruff_cache/
+.mypy_cache/
+.pyre/
+.pytype/
+.dmypy.json
 
-# IDEs and Editors
+# ==============================================================================
+# Secretos y credenciales (OWASP A04) — nunca deben entrar en Git
+# ==============================================================================
+# Variables de entorno: solo se versiona la plantilla sin valores reales
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa*
+id_ed25519*
+.aws/
+credentials
+credentials.json
+*.kubeconfig
+kubeconfig*
+.kube/
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+# Manifiestos de Secret reales: solo se versionan plantillas *.example.yaml
+k8s/**/*secret*.yaml
+k8s/**/*secret*.yml
+!k8s/**/*.example.yaml
+# Firmas/llaves de Cosign generadas localmente (el pipeline usa keyless)
+cosign.key
+cosign.pub
+
+# ==============================================================================
+# Artefactos de los escáneres del pipeline
+# ==============================================================================
+sbom*.json
+*.sarif
+bandit-report.*
+semgrep-report.*
+trivy-*.json
+pip-audit-*.json
+zap-reports/
+
+# ==============================================================================
+# Herramientas de IA / agentes (estado local, no del proyecto)
+# ==============================================================================
+# Se versionan .claude/skills/ y CLAUDE.md; los ajustes locales no
+.claude/settings.local.json
+.claude/**/*.local.*
+.superpowers/
+graphify-out/
+
+# ==============================================================================
+# IDEs y editores
+# ==============================================================================
 .vscode/
 .idea/
 *.swp
 *.swo
+*~
 
-# OS generated files
+# ==============================================================================
+# Sistema operativo
+# ==============================================================================
 .DS_Store
 .DS_Store?
 ._*
@@ -36,12 +114,11 @@ coverage.xml
 .Trashes
 ehthumbs.db
 Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
 
+# ==============================================================================
 # Logs
+# ==============================================================================
 logs/
 *.log
-
-# Build / Distribution
-dist/
-build/
-*.egg-info/

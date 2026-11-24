@@ -1,0 +1,2 @@
+"""Nexus Events shared package."""
+

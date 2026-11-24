@@ -1,0 +1,10 @@
+# Checkov (OWASP A02/A03) sobre manifiestos k8s renderizados, Dockerfiles y workflows.
+compact: true
+quiet: true
+skip-check:
+  # Variables sensibles por `valueFrom.secretKeyRef` es un requisito explícito del proyecto (Secrets externos
+  # creados fuera de Git). Montarlos como ficheros obligaría a cambiar la carga de configuración de los servicios.
+  - CKV_K8S_35
+  # La imagen por digest se inyecta en el job `deploy`; allí Checkov vuelve a correr SIN omitir este check
+  # sobre el render final (ver .github/workflows/devsecops-eks.yml).
+  - CKV_K8S_43

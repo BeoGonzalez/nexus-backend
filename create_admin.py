@@ -19,7 +19,10 @@ async def create_admin():
     settings = get_settings()
 
     admin_email = os.getenv("ADMIN_EMAIL", "admin@nexus.com")
-    admin_password = os.getenv("ADMIN_PASSWORD", "AdminPassword123!")
+    # Sin contraseña por defecto: un valor conocido (estuvo en el historial de Git) dejaría al admin expuesto.
+    admin_password = os.getenv("ADMIN_PASSWORD", "")
+    if len(admin_password) < 12:
+        raise SystemExit("Define ADMIN_PASSWORD (mínimo 12 caracteres) en el entorno antes de crear el admin.")
     admin_name = os.getenv("ADMIN_NAME", "Administrador Nexus")
 
     print("\n" + "=" * 65)
@@ -121,7 +124,7 @@ async def create_admin():
     print("\n[3/3] Resumen de credenciales de Administrador:")
     print("-" * 50)
     print(f"  Email:      {admin_email}")
-    print(f"  Password:   {admin_password}")
+    print("  Password:   (la definida en ADMIN_PASSWORD; no se muestra)")
     print(f"  Rol:        admin (acceso total al panel /admin)")
     print("-" * 50)
     print("\n¡Listo! Ahora puedes ingresar a la tienda con estas credenciales para acceder al Panel de Administración.\n")
@@ -134,7 +137,7 @@ def _print_cli_alternative(settings, email, password):
     print(f"1. Crear usuario:")
     print(f"   aws cognito-idp admin-create-user --user-pool-id {pool_id} --username {email} --user-attributes Name=email,Value={email} Name=email_verified,Value=true --message-action SUPPRESS --region {region}")
     print(f"2. Asignar contraseña permanente:")
-    print(f"   aws cognito-idp admin-set-user-password --user-pool-id {pool_id} --username {email} --password \"{password}\" --permanent --region {region}")
+    print(f"   aws cognito-idp admin-set-user-password --user-pool-id {pool_id} --username {email} --password \"$ADMIN_PASSWORD\" --permanent --region {region}")
     print(f"3. Crear y asignar al grupo admin:")
     print(f"   aws cognito-idp create-group --group-name admin --user-pool-id {pool_id} --region {region}")
     print(f"   aws cognito-idp admin-add-user-to-group --user-pool-id {pool_id} --username {email} --group-name admin --region {region}")

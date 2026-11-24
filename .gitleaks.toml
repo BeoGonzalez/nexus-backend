@@ -1,0 +1,20 @@
+# Gitleaks (OWASP A04): reglas por defecto + allowlist mínima y justificada.
+# Para un falso positivo puntual usa el comentario `gitleaks:allow` en la línea, no amplíes esta lista.
+title = "nexus-backend"
+
+[extend]
+useDefault = true
+
+# Manifiestos Secret con valores dentro de k8s/ (además del check del pipeline): solo se permiten plantillas.
+[[rules]]
+id = "k8s-secret-manifest"
+description = "Manifiesto Kubernetes Secret con datos en el repositorio"
+regex = '''(?m)^kind:\s*Secret\s*$'''
+path = '''^k8s/(?:.*/)?[^/]+\.ya?ml$'''
+keywords = ["secret"]
+  [[rules.allowlists]]
+  paths = ['''^k8s/templates/secret\.example\.yaml$''']
+
+[[allowlists]]
+description = "Informe ZAP versionado en el commit inicial: los hallazgos son URLs http://api:8000/... con IDs numéricos"
+paths = ['''^zap-reports/api_scan_report\.html$''']

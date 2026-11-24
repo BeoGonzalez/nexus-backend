@@ -44,3 +44,28 @@ dist
 Thumbs.db
 ehthumbs.db
 desktop.ini
+
+# CI/CD, manifiestos, documentación y artefactos que no deben entrar en la imagen
+.github
+k8s
+observability
+docs
+.claude
+.superpowers
+.hypothesis
+tests_support
+conftest.py
+*.md
+!README.md
+*.sarif
+sbom*.json
+
+# Material sensible
+*.pem
+*.key
+*.p12
+*.pfx
+*.kubeconfig
+.aws
+credentials*
+*.tfstate*
