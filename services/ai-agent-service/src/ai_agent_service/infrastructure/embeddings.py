@@ -32,7 +32,7 @@ EMBEDDING_TAG = "minilm-l12-onnx-int8@e8f8c211226b"
 # SHA-256 de los archivos en la revisión e8f8c211226b894fcb81acc59f3b34ba3efd5f42 (metadatos LFS de Hugging Face).
 MODEL_FILES: dict[str, str] = {
     "onnx/model_quint8_avx2.onnx": "98a01d88b7de996cdea58c32ca71208c09968d143798814b2ea09d3439dc334f",
-    "tokenizer.json": "2c3387be76557bd40970cec13153b3bbf80407865484b209e655e5e4729076b8",
+    "tokenizer.json": "2c3387be76557bd40970cec13153b3bbf80407865484b209e655e5e4729076b8",  # gitleaks:allow (SHA-256 público del archivo, no un secreto)
 }
 
 

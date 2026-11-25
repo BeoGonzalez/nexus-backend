@@ -1,0 +1,6 @@
+# Falsos positivos ya presentes en el historial (no se pueden marcar con `gitleaks:allow` sin reescribirlo).
+# Cada entrada es la huella exacta (commit:archivo:regla:línea): solo ignora ESE hallazgo en ESE commit.
+#
+# SHA-256 público de tokenizer.json del modelo paraphrase-multilingual-MiniLM-L12-v2 (verificación de integridad,
+# OWASP LLM03); la regla generic-api-key lo confunde con una clave por la palabra "token" de la clave del dict.
+dac8e4c5d4436a2ed3baa6d0e8d28d4685b4c4e9:services/ai-agent-service/src/ai_agent_service/infrastructure/embeddings.py:generic-api-key:33
