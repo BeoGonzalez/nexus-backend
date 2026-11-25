@@ -108,9 +108,11 @@ spec:
               kubernetes.io/metadata.name: observability
           podSelector:
             matchLabels:
-              app.kubernetes.io/name: opentelemetry-collector
+              app.kubernetes.io/name: alloy # Grafana Alloy (nexus-infrastructure/k8s/observability)
       ports:
         - protocol: TCP
-          port: 4317
+          port: 4317 # OTLP gRPC: trazas y métricas
         - protocol: TCP
-          port: 4318
+          port: 4318 # OTLP HTTP
+        - protocol: TCP
+          port: 4040 # Pyroscope: perfiles de CPU

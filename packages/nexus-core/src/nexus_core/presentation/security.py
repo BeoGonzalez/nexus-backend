@@ -221,7 +221,7 @@ def _disable_api_docs(app: FastAPI) -> None:
 
 def configure_service(app: FastAPI, service_name: str, settings: SecuritySettings | None = None) -> None:
     """Punto único de hardening de un microservicio: errores (A10), middleware (A06/A09) y telemetría (A09)."""
-    from nexus_core.infrastructure.telemetry import setup_telemetry
+    from nexus_core.infrastructure.telemetry import setup_profiling, setup_telemetry
     from nexus_core.presentation.errors import install_exception_handlers
 
     settings = settings or SecuritySettings.from_env()
@@ -230,3 +230,4 @@ def configure_service(app: FastAPI, service_name: str, settings: SecuritySetting
     install_exception_handlers(app)
     install_security_middleware(app, settings)
     setup_telemetry(app, service_name)
+    setup_profiling(service_name)
