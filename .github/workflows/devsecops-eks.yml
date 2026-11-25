@@ -19,7 +19,7 @@
 # Variables del repositorio (Settings > Secrets and variables > Actions > Variables):
 #   AWS_ACCOUNT_ID, AWS_REGION, ECR_REPOSITORY (prefijo: "nexus" -> nexus-auth, nexus-catalog, ...),
 #   EKS_CLUSTER_NAME, EKS_NAMESPACE, y opcionales COGNITO_USER_POOL_ID, COGNITO_APP_CLIENT_ID, EVENTS_TOPIC_ARN,
-#   OTEL_EXPORTER_OTLP_ENDPOINT, CORS_ALLOWED_ORIGINS, ALLOWED_HOSTS, API_BASE_URL (smoke test público tras desplegar:
+#   OTEL_EXPORTER_OTLP_ENDPOINT, PYROSCOPE_SERVER_ADDRESS, CORS_ALLOWED_ORIGINS, ALLOWED_HOSTS, API_BASE_URL (smoke test público tras desplegar:
 #   https://<id>.execute-api.<region>.amazonaws.com/v1/api/v1).
 name: devsecops-eks
 
@@ -443,6 +443,7 @@ jobs:
           V_COGNITO_APP_CLIENT_ID: ${{ vars.COGNITO_APP_CLIENT_ID }}
           V_EVENTS_TOPIC_ARN: ${{ vars.EVENTS_TOPIC_ARN }}
           V_OTEL_ENDPOINT: ${{ vars.OTEL_EXPORTER_OTLP_ENDPOINT }}
+          V_PYROSCOPE_ADDRESS: ${{ vars.PYROSCOPE_SERVER_ADDRESS }}
           V_CORS_ALLOWED_ORIGINS: ${{ vars.CORS_ALLOWED_ORIGINS }}
           V_ALLOWED_HOSTS: ${{ vars.ALLOWED_HOSTS }}
           V_ASSISTANT_ENABLED: ${{ vars.ASSISTANT_ENABLED }}
@@ -473,6 +474,7 @@ jobs:
             echo "ALLOWED_HOSTS=${V_ALLOWED_HOSTS:-*}"
             echo "TRUSTED_PROXY_HOPS=1"
             echo "OTEL_EXPORTER_OTLP_ENDPOINT=${V_OTEL_ENDPOINT}"
+            echo "PYROSCOPE_SERVER_ADDRESS=${V_PYROSCOPE_ADDRESS}" # profiling continuo (vacío = desactivado)
             echo "OTEL_EXPORTER_OTLP_PROTOCOL=grpc"
             echo "OTEL_SEMCONV_STABILITY_OPT_IN=http" # métricas http_server_request_duration_seconds_*
             echo "ASSISTANT_ENABLED=${V_ASSISTANT_ENABLED:-true}" # kill switch del asistente IA

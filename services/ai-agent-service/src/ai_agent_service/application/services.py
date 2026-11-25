@@ -23,6 +23,7 @@ from ai_agent_service.domain.ports import (
 from ai_agent_service.config import get_settings
 from ai_agent_service.security.context import UserContext
 from ai_agent_service.security.grounding import extract_amounts, ungrounded_amounts
+from ai_agent_service.infrastructure.llm_metrics import LLMMetrics, default_metrics
 from ai_agent_service.security.memory import sanitize_history
 from ai_agent_service.security.token_budget import estimate_tokens
 from ai_agent_service.security.output_guard import StreamingOutputGuard
@@ -46,7 +47,9 @@ class AssistantService:
         price_comparison_port: PriceComparisonPort | None = None,
         email_port: EmailPort | None = None,
         catalog_port=None,
+        metrics: LLMMetrics | None = None,
     ) -> None:
+        self._metrics = metrics or default_metrics()  # tokens, resultados y seguridad -> Mimir
         self._embedding = embedding_port
         self._catalog = catalog_port  # LLM07: precio/stock en vivo desde el servicio de catálogo
         self._llm = llm_port
@@ -228,6 +231,7 @@ class AssistantService:
         signals = detect_injection(clean_query)
         if signals:
             log_security_event("llm.prompt_injection_suspected", user_sub=user_sub, signals=signals)
+            self._metrics.security_event("prompt_injection")
         llm_query = mask_pii(clean_query)
 
         # ---- Hook memoryContextRetrieval: historial del cliente o de la memoria, siempre como dato no confiable
@@ -268,6 +272,7 @@ class AssistantService:
             logger.warning("RAG no disponible, se responde sin catálogo: %s", type(e).__name__)
             log_security_event("llm.degraded", level=logging.INFO, user_sub=user_sub, component="vector_store")
 
+        self._metrics.rag_results(len(video_games))
         context_parts = []
         for i, vg in enumerate(video_games, 1):
             genres = ", ".join(g.name for g in vg.genres) if vg.genres else "N/A"
@@ -340,6 +345,7 @@ class AssistantService:
         guard = StreamingOutputGuard(max_chars=settings.LLM_MAX_OUTPUT_CHARS)
         emitted: list[str] = []
         llm_failed = False
+        timed_out = False
         provider_usage: dict = {}
         raw_output: list[str] = []
         try:
@@ -354,6 +360,7 @@ class AssistantService:
                         break
         except TimeoutError:
             log_security_event("llm.circuit_breaker", user_sub=user_sub, reason="stream_timeout")
+            timed_out = True
             llm_failed = not emitted
         except Exception as e:
             logger.warning("LLM generate_stream falló, se usa respuesta de respaldo: %s", type(e).__name__)
@@ -377,6 +384,23 @@ class AssistantService:
 
         full_response = "".join(emitted)
 
+        # ---- Métricas del modelo (sin datos personales): consumo real, resultado y latencia
+        if guard.leaked:
+            outcome = "leak_blocked"
+            self._metrics.security_event("system_prompt_leak")
+        elif timed_out:
+            outcome = "timeout"
+        elif llm_failed:
+            outcome = "fallback"
+        else:
+            outcome = "ok"
+        self._metrics.tokens(
+            input_tokens=int(provider_usage.get("input_tokens") or 0),
+            output_tokens=int(provider_usage.get("output_tokens") or 0),
+            model=settings.GROQ_MODEL_NAME,
+        )
+        self._metrics.request(outcome=outcome, intent=intent, seconds=time.monotonic() - started)
+
         # ---- Presupuesto de tokens (LLM06): uso real del proveedor; si no lo informa, estimación que nunca es 0
         if on_usage is not None:
             tokens = int(provider_usage.get("total_tokens") or 0) or estimate_tokens(
@@ -392,6 +416,7 @@ class AssistantService:
         ungrounded = ungrounded_amounts(full_response, allowed_amounts)
         if ungrounded and not guard.leaked:
             log_security_event("llm.ungrounded_claim", level=logging.INFO, user_sub=user_sub, amounts=len(ungrounded))
+            self._metrics.security_event("ungrounded_claim")
             yield f"data: {json.dumps({'type': 'notice', 'data': GROUNDING_NOTICE})}\n\n"
 
         # ---- Hook memoryStore: solo lo que vio el usuario, saneado, con PII enmascarada y acotado

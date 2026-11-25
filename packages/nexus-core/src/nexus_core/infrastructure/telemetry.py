@@ -51,3 +51,28 @@ def setup_telemetry(app: FastAPI, service_name: str) -> bool:
     )
     logger.info("OpenTelemetry activo: exportando por OTLP a %s", endpoint)
     return True
+
+
+def setup_profiling(service_name: str) -> bool:
+    """Profiling continuo (CPU) con Pyroscope, hacia el Alloy del clúster (`pyroscope.receive_http`).
+
+    Se activa solo si `PYROSCOPE_SERVER_ADDRESS` está definido. El pod no lleva credenciales de Grafana Cloud:
+    Alloy las añade al reenviar. Un fallo aquí nunca impide arrancar el servicio.
+    """
+    address = os.getenv("PYROSCOPE_SERVER_ADDRESS", "").strip()
+    if not address:
+        return False
+    try:
+        import pyroscope
+
+        pyroscope.configure(
+            application_name=f"nexus.{os.getenv('OTEL_SERVICE_NAME', service_name)}",
+            server_address=address,
+            sample_rate=100,
+            tags={"service_namespace": "nexus", "environment": os.getenv("SERVICE_ENV", "local")},
+        )
+    except Exception as exc:  # SDK no disponible (p. ej. Windows) o colector inaccesible
+        logger.warning("Pyroscope no disponible: %s", type(exc).__name__)
+        return False
+    logger.info("Pyroscope activo: perfiles hacia %s", address)
+    return True

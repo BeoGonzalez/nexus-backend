@@ -20,6 +20,7 @@ from ai_agent_service.application.services import AssistantService
 from ai_agent_service.infrastructure.cheapshark_adapter import CheapSharkPriceAdapter
 from ai_agent_service.infrastructure.catalog_client import CatalogVerifier
 from ai_agent_service.infrastructure.embeddings import OnnxEmbeddingAdapter
+from ai_agent_service.infrastructure.llm_metrics import default_metrics
 from ai_agent_service.infrastructure.laya_adapter import LayaDecisionAdapter
 from ai_agent_service.infrastructure.llm import GroqLLMAdapter
 from ai_agent_service.infrastructure.pinecone_store import PineconeVectorStoreAdapter
@@ -155,6 +156,7 @@ async def chat_stream(
             raise
     except QuotaExceeded as exc:
         log_security_event("llm.quota_exceeded", user_sub=user.sub, reason=exc.reason)
+        default_metrics().quota_rejected(exc.reason)
         if exc.reason in _SITE_WIDE_LIMITS:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
