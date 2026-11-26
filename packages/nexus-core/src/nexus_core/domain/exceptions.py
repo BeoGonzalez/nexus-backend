@@ -15,6 +15,16 @@ class BusinessRuleViolationException(DomainException):
     pass
 
 
+class InvalidInputException(DomainException):
+    """Raised when input is well-formed but rejected by a domain/provider rule (maps to 422)."""
+    pass
+
+
+class ServiceUnavailableException(DomainException):
+    """Raised when a required downstream provider fails unexpectedly (maps to 503)."""
+    pass
+
+
 class UnauthorizedException(DomainException):
     """Raised for authentication or authorization failures (maps to 401)."""
     pass

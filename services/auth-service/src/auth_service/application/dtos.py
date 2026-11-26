@@ -1,5 +1,8 @@
 from pydantic import BaseModel, EmailStr, Field
 
+# Igual que el User Pool de Cognito (nexus-infrastructure/terraform/auth.tf: minimum_length).
+PASSWORD_MIN_LENGTH = 12
+
 
 class LoginRequest(BaseModel):
     email: EmailStr
@@ -9,7 +12,7 @@ class LoginRequest(BaseModel):
 class RegisterRequest(BaseModel):
     name: str = Field(..., min_length=2, max_length=100)
     email: EmailStr
-    password: str = Field(..., min_length=8)
+    password: str = Field(..., min_length=PASSWORD_MIN_LENGTH)
 
 
 class ConfirmSignUpRequest(BaseModel):
@@ -33,7 +36,7 @@ class ForgotPasswordRequest(BaseModel):
 class ResetPasswordRequest(BaseModel):
     email: EmailStr
     confirmation_code: str = Field(..., min_length=6, max_length=6)
-    new_password: str = Field(..., min_length=8)
+    new_password: str = Field(..., min_length=PASSWORD_MIN_LENGTH)
 
 
 class TokenResponse(BaseModel):

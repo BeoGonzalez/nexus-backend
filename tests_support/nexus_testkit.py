@@ -2,12 +2,28 @@
 
 from __future__ import annotations
 
+import secrets
+import string
 import time
 
 import jwt
 from pydantic import BaseModel
 
 TEST_JWT_SECRET = "test-secret-not-for-prod-0123456789abcdef"
+
+
+def policy_password(length: int = 16) -> str:
+    """Contraseña de prueba que cumple la política del User Pool (mayúscula, minúscula, número y símbolo).
+
+    Se genera en cada ejecución: los tests no versionan contraseñas literales que los escáneres de secretos
+    (GitGuardian, gitleaks) reportan como credenciales. `length` < 12 sirve para probar el rechazo por longitud.
+    """
+    required = [secrets.choice(string.ascii_uppercase), secrets.choice(string.ascii_lowercase),
+                secrets.choice(string.digits), secrets.choice("!#$%&*+-=?@^_")]
+    rest = [secrets.choice(string.ascii_letters + string.digits) for _ in range(max(length - len(required), 0))]
+    chars = required + rest
+    secrets.SystemRandom().shuffle(chars)
+    return "".join(chars)
 
 
 def sign_token(

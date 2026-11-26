@@ -9,7 +9,12 @@ from botocore.stub import ANY, Stubber
 
 from auth_service.config import Settings
 from auth_service.infrastructure.cognito import CognitoAdapter, calculate_secret_hash
-from nexus_core.domain.exceptions import BusinessRuleViolationException, UnauthorizedException
+from nexus_core.domain.exceptions import (
+    BusinessRuleViolationException,
+    InvalidInputException,
+    ServiceUnavailableException,
+    UnauthorizedException,
+)
 from nexus_testkit import TEST_JWT_SECRET
 
 
@@ -75,7 +80,21 @@ async def test_register_returns_subject_and_confirmation_state(cognito):
 async def test_register_duplicate_email_is_business_rule_violation(cognito):
     adapter, stub = cognito
     stub.add_client_error("sign_up", service_error_code="UsernameExistsException")
-    with pytest.raises(BusinessRuleViolationException, match="Ya existe"):
+    with pytest.raises(BusinessRuleViolationException, match="^Este usuario ya está registrado\.$"):
+        await adapter.register("a@b.cl", "pw123456", "Ana")
+
+
+async def test_register_password_policy_rejection_is_invalid_input_with_real_minimum(cognito):
+    adapter, stub = cognito
+    stub.add_client_error("sign_up", service_error_code="InvalidPasswordException")
+    with pytest.raises(InvalidInputException, match="mínimo 12 caracteres"):
+        await adapter.register("a@b.cl", "pw123456", "Ana")
+
+
+async def test_register_unexpected_cognito_failure_is_service_unavailable(cognito):
+    adapter, stub = cognito
+    stub.add_client_error("sign_up", service_error_code="ResourceNotFoundException")
+    with pytest.raises(ServiceUnavailableException):
         await adapter.register("a@b.cl", "pw123456", "Ana")
 
 
@@ -221,11 +240,12 @@ async def test_local_mode_email_is_case_and_space_insensitive(local_adapter):
     assert claims["email"] == "ana@b.cl"
 
 
-async def test_local_mode_duplicate_register_is_rejected(local_adapter):
-    await local_adapter.register("ana@b.cl", "pw123456", "Ana")
-    with pytest.raises(BusinessRuleViolationException, match="Ya existe"):
-        await local_adapter.register("ana@b.cl", "other-pass", "Eve")
-    await local_adapter.authenticate("ana@b.cl", "pw123456")
+async def test_local_mode_duplicate_register_says_user_already_registered(local_adapter):
+    await local_adapter.register("dup@b.cl", "pw123456", "Ana")
+    with pytest.raises(BusinessRuleViolationException, match="^Este usuario ya está registrado\\.$"):
+        await local_adapter.register("dup@b.cl", "other-pass", "Eve")
+    # El intento duplicado no sobrescribe la cuenta original.
+    await local_adapter.authenticate("dup@b.cl", "pw123456")
 
 
 def test_password_hash_is_salted_and_verifiable():

@@ -9,12 +9,20 @@ from typing import Any
 
 from auth_service.config import get_settings
 from auth_service.domain.ports import IdentityProviderPort
-from nexus_core.domain.exceptions import BusinessRuleViolationException, UnauthorizedException
+from nexus_core.domain.exceptions import (
+    BusinessRuleViolationException,
+    InvalidInputException,
+    ServiceUnavailableException,
+    UnauthorizedException,
+)
 from nexus_security.cognito import cognito_settings_present
 
 logger = logging.getLogger("auth.cognito")
 
 INVALID_CREDENTIALS = "Correo electrónico o contraseña incorrectos."
+USER_ALREADY_REGISTERED = "Este usuario ya está registrado."
+# Misma política que el User Pool (nexus-infrastructure/terraform/auth.tf).
+PASSWORD_POLICY = "La contraseña no cumple la política: mínimo 12 caracteres con mayúsculas, minúsculas, números y símbolos."
 
 
 _SCRYPT_N, _SCRYPT_R, _SCRYPT_P = 2**14, 8, 1
@@ -164,12 +172,12 @@ class CognitoAdapter(IdentityProviderPort):
             try:
                 return client.sign_up(**kwargs)
             except client.exceptions.UsernameExistsException:
-                raise BusinessRuleViolationException("Ya existe una cuenta con este correo electrónico.")
-            except client.exceptions.InvalidPasswordException as exc:
-                raise BusinessRuleViolationException("La contraseña no cumple la política: mínimo 8 caracteres con mayúsculas, minúsculas, números y símbolos.")
+                raise BusinessRuleViolationException(USER_ALREADY_REGISTERED)
+            except client.exceptions.InvalidPasswordException:
+                raise InvalidInputException(PASSWORD_POLICY)
             except Exception as exc:
                 _log_cognito_failure("sign_up", exc)
-                raise BusinessRuleViolationException("No fue posible registrar la cuenta. Inténtalo más tarde.")
+                raise ServiceUnavailableException("No fue posible registrar la cuenta. Inténtalo más tarde.")
 
         response = await asyncio.to_thread(_call_signup)
         return {
@@ -365,7 +373,7 @@ class CognitoAdapter(IdentityProviderPort):
     async def _local_register(self, email: str, password: str, name: str) -> dict[str, Any]:
         email = _normalize_email(email)
         if email in self._local_users:
-            raise BusinessRuleViolationException("Ya existe una cuenta con ese correo.")
+            raise BusinessRuleViolationException(USER_ALREADY_REGISTERED)
         sub = f"usr-local-{secrets.token_hex(8)}"
         self._local_users[email] = {
             "sub": sub,
