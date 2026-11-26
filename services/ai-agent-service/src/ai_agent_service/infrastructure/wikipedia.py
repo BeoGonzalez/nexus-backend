@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 
 try:
     from langchain_community.utilities import WikipediaAPIWrapper
@@ -16,6 +17,9 @@ from ai_agent_service.config import get_settings
 
 logger = logging.getLogger(__name__)
 
+# Mismo formato que el adaptador de CheapShark (política de User-Agent de Wikimedia).
+WIKIMEDIA_USER_AGENT = "NexusDigitalStore/1.0 (comparador-gamer; soporte@nexusdigital.store) python-wikipedia"
+
 
 class WikipediaAdapter(ExternalKnowledgePort):
     def __init__(
@@ -23,8 +27,14 @@ class WikipediaAdapter(ExternalKnowledgePort):
         lang: str | None = None,
         top_k_results: int | None = None,
         doc_content_chars_max: int | None = None,
+        metrics=None,
     ) -> None:
         settings = get_settings()
+        self._metrics = metrics
+        # Wikimedia exige identificar al cliente: con el User-Agent genérico de la librería responde HTTP 429
+        # desde la 3.ª consulta seguida. LangChain usa este mismo módulo, así que vale para ambos caminos.
+        if wikipedia is not None and hasattr(wikipedia, "set_user_agent"):
+            wikipedia.set_user_agent(WIKIMEDIA_USER_AGENT)
         self._lang = lang or settings.WIKIPEDIA_LANG
         self._top_k = top_k_results or settings.WIKIPEDIA_TOP_K
         self._chars_max = doc_content_chars_max or settings.WIKIPEDIA_MAX_CHARS
@@ -46,13 +56,15 @@ class WikipediaAdapter(ExternalKnowledgePort):
 
         query = f"{topic} videojuego" if "videojuego" not in topic.lower() else topic
 
+        failures: list[str] = []
+
         def _fetch() -> str:
             if self._wiki:
                 try:
                     result = self._wiki.run(query)
                     return result.strip() if result else "Sin datos externos."
                 except Exception as exc:
-                    logger.debug("WikipediaAPIWrapper query failed for '%s': %s", query, exc)
+                    failures.append(type(exc).__name__)
             if wikipedia:
                 try:
                     wikipedia.set_lang(self._lang)
@@ -61,9 +73,21 @@ class WikipediaAdapter(ExternalKnowledgePort):
                         summary = wikipedia.summary(search_results[0], sentences=3)
                         return summary[:self._chars_max].strip() if summary else "Sin datos externos."
                 except Exception as exc:
-                    logger.debug("Native wikipedia query failed for '%s': %s", query, exc)
+                    failures.append(type(exc).__name__)
             return "Sin datos externos."
 
+        started = time.monotonic()
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, _fetch)
+        text = await loop.run_in_executor(None, _fetch)
+        found = text != "Sin datos externos."
+        outcome = "ok" if found else "error" if failures else "empty"
+        if outcome == "error":
+            logger.warning("Wikipedia: fallo de la consulta (%s)", ", ".join(failures))
+        metrics = self._metrics
+        if metrics is None:
+            from ai_agent_service.infrastructure.llm_metrics import default_metrics
+
+            metrics = default_metrics()
+        metrics.external_call(source="wikipedia", outcome=outcome, seconds=time.monotonic() - started)
+        return text
 
