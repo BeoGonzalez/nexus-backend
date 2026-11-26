@@ -48,7 +48,7 @@ def test_with_pyroscope_address_profiles_are_pushed_to_the_collector(monkeypatch
     monkeypatch.setitem(sys.modules, "pyroscope", fake)
     assert setup_profiling("catalog-service") is True
     [call] = fake.calls
-    assert call["application_name"] == "nexus.catalog-service"
+    assert call["application_name"] == "catalog-service"  # mismo nombre que métricas, logs y trazas
     assert call["server_address"] == "http://alloy.observability:4040"
     assert call["tags"] == {"service_namespace": "nexus", "environment": "aws"}
     # Sin credenciales en el pod: el token de Grafana Cloud vive solo en Alloy.

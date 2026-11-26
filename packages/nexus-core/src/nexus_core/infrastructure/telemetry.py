@@ -66,7 +66,7 @@ def setup_profiling(service_name: str) -> bool:
         import pyroscope
 
         pyroscope.configure(
-            application_name=f"nexus.{os.getenv('OTEL_SERVICE_NAME', service_name)}",
+            application_name=os.getenv("OTEL_SERVICE_NAME", service_name),  # igual que métricas, logs y trazas
             server_address=address,
             sample_rate=100,
             tags={"service_namespace": "nexus", "environment": os.getenv("SERVICE_ENV", "local")},
