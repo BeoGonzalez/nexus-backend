@@ -1,6 +1,6 @@
 {
   "uid": "nexus-frontend",
-  "title": "Nexus · Frontend (Next.js + navegador)",
+  "title": "Nexus · 1 · Sitio web (Next.js + navegador)",
   "tags": [
     "nexus",
     "frontend"
@@ -64,25 +64,22 @@
       {
         "name": "faro_app",
         "label": "App de Faro",
-        "type": "query",
-        "datasource": {
-          "type": "loki",
-          "uid": "${loki}"
-        },
-        "query": {
-          "label": "app_name",
-          "stream": "",
-          "type": 1,
-          "refId": "LokiVariableQueryEditor-VariableQuery"
-        },
-        "definition": "",
-        "refresh": 2,
-        "regex": "",
+        "type": "custom",
+        "includeAll": false,
         "multi": false,
-        "includeAll": true,
-        "allValue": ".*",
-        "current": {},
-        "sort": 1,
+        "query": "nexus-frontend",
+        "current": {
+          "selected": true,
+          "text": "nexus-frontend",
+          "value": "nexus-frontend"
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "nexus-frontend",
+            "value": "nexus-frontend"
+          }
+        ],
         "hide": 0
       }
     ]
@@ -135,7 +132,8 @@
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "custom": {}
+          "custom": {},
+          "noValue": "Sin datos en este rango: ¿está encendido el Learner Lab?"
         },
         "overrides": []
       },
@@ -204,7 +202,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "Sin datos en este rango: ¿está encendido el Learner Lab?"
         },
         "overrides": []
       },
@@ -273,7 +272,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "Sin datos en este rango: ¿está encendido el Learner Lab?"
         },
         "overrides": []
       },
@@ -342,7 +342,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "Sin datos en este rango: ¿está encendido el Learner Lab?"
         },
         "overrides": []
       },
@@ -419,7 +420,8 @@
             "stacking": {
               "mode": "none"
             }
-          }
+          },
+          "noValue": "Sin datos en este rango: ¿está encendido el Learner Lab?"
         },
         "overrides": []
       },
@@ -484,7 +486,8 @@
             "stacking": {
               "mode": "none"
             }
-          }
+          },
+          "noValue": "Sin datos en este rango: ¿está encendido el Learner Lab?"
         },
         "overrides": []
       },
@@ -516,7 +519,7 @@
     {
       "id": 10,
       "type": "timeseries",
-      "title": "Peticiones por ruta (TraceQL)",
+      "title": "Peticiones por ruta (TraceQL, últimas 24 h)",
       "description": "",
       "datasource": {
         "type": "tempo",
@@ -554,7 +557,8 @@
             "stacking": {
               "mode": "none"
             }
-          }
+          },
+          "noValue": "Sin datos en este rango: ¿está encendido el Learner Lab?"
         },
         "overrides": []
       },
@@ -568,12 +572,14 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "timeFrom": "24h",
+      "hideTimeOverride": false
     },
     {
       "id": 11,
       "type": "timeseries",
-      "title": "Latencia p95 por ruta (TraceQL)",
+      "title": "Latencia p95 por ruta (TraceQL, últimas 24 h)",
       "description": "",
       "datasource": {
         "type": "tempo",
@@ -611,7 +617,8 @@
             "stacking": {
               "mode": "none"
             }
-          }
+          },
+          "noValue": "Sin datos en este rango: ¿está encendido el Learner Lab?"
         },
         "overrides": []
       },
@@ -625,12 +632,14 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "timeFrom": "24h",
+      "hideTimeOverride": false
     },
     {
       "id": 12,
       "type": "timeseries",
-      "title": "Errores del BFF (TraceQL)",
+      "title": "Errores del BFF (TraceQL, últimas 24 h)",
       "description": "",
       "datasource": {
         "type": "tempo",
@@ -668,7 +677,8 @@
             "stacking": {
               "mode": "none"
             }
-          }
+          },
+          "noValue": "Sin datos en este rango: ¿está encendido el Learner Lab?"
         },
         "overrides": []
       },
@@ -682,7 +692,9 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "timeFrom": "24h",
+      "hideTimeOverride": false
     },
     {
       "id": 13,
@@ -716,7 +728,9 @@
         "showHeader": true
       },
       "fieldConfig": {
-        "defaults": {},
+        "defaults": {
+          "noValue": "Sin datos en este rango: ¿está encendido el Learner Lab?"
+        },
         "overrides": []
       }
     },
@@ -772,7 +786,8 @@
             "stacking": {
               "mode": "none"
             }
-          }
+          },
+          "noValue": "Sin datos en este rango: ¿está encendido el Learner Lab?"
         },
         "overrides": []
       },
@@ -827,7 +842,8 @@
             "stacking": {
               "mode": "none"
             }
-          }
+          },
+          "noValue": "Sin datos en este rango: ¿está encendido el Learner Lab?"
         },
         "overrides": []
       },
@@ -878,7 +894,7 @@
             "type": "loki",
             "uid": "${loki}"
           },
-          "expr": "sum(count_over_time({source=\"frontend-ec2\"} |~ \"(?i)error\" [5m]))",
+          "expr": "sum(count_over_time({source=\"frontend-ec2\"} |~ \"(?i)error\" [$__auto])) or vector(0)",
           "legendFormat": "errores",
           "queryType": "range"
         }
@@ -895,7 +911,8 @@
             "stacking": {
               "mode": "none"
             }
-          }
+          },
+          "noValue": "Sin datos en este rango: ¿está encendido el Learner Lab?"
         },
         "overrides": []
       },
@@ -945,6 +962,11 @@
         "enableLogDetails": true,
         "dedupStrategy": "none",
         "prettifyLogMessage": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Sin registros en este rango"
+        }
       }
     },
     {
@@ -1011,7 +1033,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "Aún no llegan datos del navegador (Faro): visita el sitio y espera ~1 min"
         },
         "overrides": []
       },
@@ -1080,7 +1103,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "Aún no llegan datos del navegador (Faro): visita el sitio y espera ~1 min"
         },
         "overrides": []
       },
@@ -1149,7 +1173,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "Aún no llegan datos del navegador (Faro): visita el sitio y espera ~1 min"
         },
         "overrides": []
       },
@@ -1218,7 +1243,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "Aún no llegan datos del navegador (Faro): visita el sitio y espera ~1 min"
         },
         "overrides": []
       },
@@ -1287,7 +1313,8 @@
           },
           "color": {
             "mode": "thresholds"
-          }
+          },
+          "noValue": "Aún no llegan datos del navegador (Faro): visita el sitio y espera ~1 min"
         },
         "overrides": []
       },
@@ -1327,7 +1354,7 @@
             "type": "loki",
             "uid": "${loki}"
           },
-          "expr": "sum by (type) (count_over_time({app_name=~\"$faro_app\", kind=\"exception\"} | logfmt [5m]))",
+          "expr": "sum by (type) (count_over_time({app_name=~\"$faro_app\", kind=\"exception\"} | logfmt [$__auto])) or vector(0)",
           "legendFormat": "{{type}}",
           "queryType": "range"
         }
@@ -1344,7 +1371,8 @@
             "stacking": {
               "mode": "none"
             }
-          }
+          },
+          "noValue": "Aún no llegan datos del navegador (Faro): visita el sitio y espera ~1 min"
         },
         "overrides": []
       },
@@ -1382,7 +1410,7 @@
             "type": "loki",
             "uid": "${loki}"
           },
-          "expr": "sum(count_over_time({app_name=~\"$faro_app\", kind=\"event\"} |= \"page\" [5m]))",
+          "expr": "sum(count_over_time({app_name=~\"$faro_app\", kind=\"event\"} |= \"page\" [$__auto])) or vector(0)",
           "legendFormat": "vistas",
           "queryType": "range"
         }
@@ -1399,7 +1427,8 @@
             "stacking": {
               "mode": "none"
             }
-          }
+          },
+          "noValue": "Aún no llegan datos del navegador (Faro): visita el sitio y espera ~1 min"
         },
         "overrides": []
       },
@@ -1449,6 +1478,11 @@
         "enableLogDetails": true,
         "dedupStrategy": "none",
         "prettifyLogMessage": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Sin errores de JavaScript en este rango (si Faro ya envía datos, es buena señal)"
+        }
       }
     },
     {
@@ -1488,10 +1522,29 @@
           },
           "queryType": "profile",
           "profileTypeId": "process_cpu:cpu:nanoseconds:cpu:nanoseconds",
-          "labelSelector": "{service_name=\"nexus.nexus-frontend\"}",
+          "labelSelector": "{service_name=~\"(nexus[.])?nexus-frontend\"}",
           "groupBy": []
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Sin datos en este rango: ¿está encendido el Learner Lab?"
+        }
+      }
+    }
+  ],
+  "links": [
+    {
+      "title": "Dashboards Nexus",
+      "type": "dashboards",
+      "tags": [
+        "nexus"
+      ],
+      "asDropdown": true,
+      "includeVars": false,
+      "keepTime": true,
+      "targetBlank": false,
+      "icon": "external link"
     }
   ]
 }
