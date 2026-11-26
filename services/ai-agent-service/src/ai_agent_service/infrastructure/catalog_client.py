@@ -13,10 +13,9 @@ import logging
 from uuid import UUID
 
 import httpx
-
 from nexus_core.infrastructure.logging import log_security_event
 
-from ai_agent_service.domain.entities import VideoGame
+from ai_agent_service.domain.entities import Genre, VideoGame
 
 logger = logging.getLogger(__name__)
 
@@ -57,3 +56,38 @@ class CatalogVerifier:
         if degraded:
             log_security_event("llm.degraded", level=logging.INFO, component="catalog_verification")
         return verified
+
+    async def list_products(self, limit: int) -> list[VideoGame] | None:
+        """Catálogo completo en vivo (para "¿qué juegos tienen?"). None si el catálogo no responde (LLM06 #5)."""
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                r = await client.get(f"{self._base}/api/v1/catalog/products", params={"skip": 0, "limit": limit})
+                r.raise_for_status()
+                rows = r.json()
+        except (httpx.HTTPError, ValueError):  # catálogo caído, error HTTP o JSON inválido
+            log_security_event("llm.degraded", level=logging.INFO, component="catalog_listing")
+            return None
+        if not isinstance(rows, list):
+            return None
+        return [g for g in (_to_game(row) for row in rows[:limit]) if g is not None]
+
+
+def _to_game(row: object) -> VideoGame | None:
+    """LLM09: un registro con forma inesperada no entra al contexto del modelo."""
+    try:
+        title = row["title"]
+        price, stock = int(row["price_clp"]), int(row["stock"])
+        if not (isinstance(title, str) and 0 < len(title) <= 300 and 0 < price <= 10_000_000 and stock >= 0):
+            return None
+        platform = (row.get("platform") or {}).get("name")
+        return VideoGame(
+            id=UUID(str(row["id"])),
+            title=title,
+            description="",
+            price_clp=price,
+            stock=stock,
+            platform=platform if isinstance(platform, str) else None,
+            genres=[Genre(name=str(g.get("name", ""))[:50]) for g in (row.get("genres") or []) if isinstance(g, dict)],
+        )
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return None
