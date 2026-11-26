@@ -10,6 +10,7 @@ from typing import Any
 from auth_service.config import get_settings
 from auth_service.domain.ports import IdentityProviderPort
 from nexus_core.domain.exceptions import BusinessRuleViolationException, UnauthorizedException
+from nexus_security.cognito import cognito_settings_present
 
 logger = logging.getLogger("auth.cognito")
 
@@ -63,9 +64,7 @@ class CognitoAdapter(IdentityProviderPort):
 
     @property
     def is_configured(self) -> bool:
-        pool_id = (self.settings.COGNITO_USER_POOL_ID or "").strip()
-        client_id = (self.settings.COGNITO_APP_CLIENT_ID or "").strip()
-        return bool(pool_id and client_id and pool_id != "your-user-pool-id")
+        return cognito_settings_present(self.settings.COGNITO_USER_POOL_ID, self.settings.COGNITO_APP_CLIENT_ID)
 
     @property
     def local_mode_enabled(self) -> bool:

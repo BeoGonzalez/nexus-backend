@@ -78,6 +78,14 @@ BEGIN
     SELECT id INTO g_scifi FROM genres WHERE name = 'Ciencia Ficción';
     SELECT id INTO g_openworld FROM genres WHERE name = 'Mundo Abierto';
 
+    -- Idempotencia: products.title no es UNIQUE, así que si el seed ya corrió
+    -- (el servicio catalog-seed se ejecuta en cada `docker compose up`) no se
+    -- vuelve a insertar nada para no duplicar juegos.
+    IF EXISTS (SELECT 1 FROM products WHERE title = 'Marvel''s Spider-Man 2') THEN
+        RAISE NOTICE 'Seed del catálogo ya aplicado; se omite.';
+        RETURN;
+    END IF;
+
     -- =========================================================================
     -- JUEGOS PLAYSTATION 5 (PS5)
     -- =========================================================================

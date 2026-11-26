@@ -182,3 +182,32 @@ async def test_role_denial_is_audited_with_subject(client, caplog):
     assert r.status_code == 403
     events = [r for r in caplog.records if getattr(r, "security_event", None) == "authz.denied"]
     assert events and events[0].user_sub == "cust-9"
+
+
+async def test_placeholder_cognito_env_falls_back_to_local_hs256(client, monkeypatch):
+    # Valores tal cual vienen en .env.example: deben comportarse como "sin Cognito".
+    monkeypatch.setenv("COGNITO_USER_POOL_ID", "us-east-1_xxxxxxxxx")
+    monkeypatch.setenv("COGNITO_APP_CLIENT_ID", "xxxxxxxxxxxxxxxxxxxxxxxxxx")
+    monkeypatch.setattr(
+        dependencies, "get_cognito_verifier", lambda *a: pytest.fail("no debe usar el verificador de Cognito")
+    )
+
+    r = await client.get("/who", headers=auth_headers(sub="local-1"))
+    assert r.status_code == 200
+    assert r.json()["sub"] == "local-1"
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("us-east-1_xxxxxxxxx", True),
+        ("XXXXXXXXXXXXXXXXXXXXXXXXXX", True),
+        ("your-user-pool-id", True),
+        ("us-east-1_AbC123dEf", False),
+        ("4j2k8l1m9n0p3q5r7s6t", False),
+    ],
+)
+def test_is_placeholder_credential(value, expected):
+    from nexus_security.cognito import is_placeholder_credential
+
+    assert is_placeholder_credential(value) is expected
