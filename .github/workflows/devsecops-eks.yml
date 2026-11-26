@@ -17,7 +17,9 @@
 # `id-token: write` sí se usa: Cosign keyless y las attestations firman con el OIDC de GitHub vía Sigstore.
 #
 # Variables del repositorio (Settings > Secrets and variables > Actions > Variables):
-#   AWS_ACCOUNT_ID, AWS_REGION, ECR_REPOSITORY (prefijo: "nexus" -> nexus-auth, nexus-catalog, ...),
+#   AWS_REGION, ECR_REPOSITORY (prefijo: "nexus" -> nexus-auth, nexus-catalog, ...),
+#   (el registry ECR sale de la cuenta de las credenciales vía amazon-ecr-login; AWS_ACCOUNT_ID ya no se usa,
+#   así una cuenta nueva del Learner Lab no deja el push apuntando al registry de la cuenta anterior),
 #   EKS_CLUSTER_NAME, EKS_NAMESPACE, y opcionales COGNITO_USER_POOL_ID, COGNITO_APP_CLIENT_ID, EVENTS_TOPIC_ARN,
 #   OTEL_EXPORTER_OTLP_ENDPOINT, PYROSCOPE_SERVER_ADDRESS, CORS_ALLOWED_ORIGINS, ALLOWED_HOSTS, API_BASE_URL (smoke test público tras desplegar:
 #   https://<id>.execute-api.<region>.amazonaws.com/v1/api/v1).
@@ -270,7 +272,6 @@ jobs:
     env:
       PUBLISH: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' }}
       LOCAL_IMAGE: nexus-${{ matrix.service }}:${{ github.sha }}
-      REGISTRY: ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com
       REPOSITORY: ${{ vars.ECR_REPOSITORY }}-${{ matrix.service }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -333,7 +334,18 @@ jobs:
 
       - name: Login en Amazon ECR
         if: env.PUBLISH == 'true'
+        id: ecr
         uses: aws-actions/amazon-ecr-login@7290e214a610b32bc0eef81748948b6d466a8783 # v2.2.0
+
+      # El registry es el de la cuenta en la que se hizo login (nunca una variable que puede quedar obsoleta).
+      - name: Fijar registry de la cuenta autenticada
+        if: env.PUBLISH == 'true'
+        env:
+          ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          set -euo pipefail
+          [ -n "$ECR_REGISTRY" ] || { echo "::error::amazon-ecr-login no devolvió registry"; exit 1; }
+          echo "REGISTRY=${ECR_REGISTRY}" >> "$GITHUB_ENV"
 
       - name: Push a ECR con tag inmutable (SHA del commit)
         if: env.PUBLISH == 'true'
