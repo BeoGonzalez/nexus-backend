@@ -555,6 +555,17 @@ jobs:
           MAX_RESTARTS: "0"
         run: bash .github/scripts/verify-eks-deploy.sh
 
+      # Pinecone indexa por ID de producto: si el catálogo cambió (o se recreó en otra cuenta), sin esto el
+      # asistente no encuentra juegos. Corre dentro del pod del ai-agent (ya tiene la key, el modelo ONNX y red al
+      # catálogo), así la key de Pinecone no pasa por GitHub. Un fallo aquí avisa pero no dispara el rollback.
+      - name: Reindexar el catálogo del asistente en Pinecone
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          kubectl -n "$EKS_NAMESPACE" exec deploy/ai-agent --request-timeout=300s -- \
+            python -m ai_agent_service.cli.reindex_catalog --catalog-url http://catalog/api/v1/catalog \
+            || { echo "::warning::No se pudo reindexar Pinecone: el asistente puede no encontrar los juegos"; exit 1; }
+
       # Si el apply o la verificación fallan, vuelve cada Deployment a la revisión previa.
       - name: Rollback automático
         if: failure() && steps.apply.outcome != 'skipped'
