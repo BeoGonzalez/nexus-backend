@@ -102,3 +102,27 @@ async def test_unauthorized_sets_www_authenticate(client):
 async def test_generated_request_id_when_client_sends_none(client):
     r = await client.get("/boom")
     assert len(r.json()["request_id"]) >= 16
+
+
+@app.get("/raise-new/{kind}")
+async def raise_new(kind: str) -> dict:
+    from nexus_core.domain.exceptions import InvalidInputException, ServiceUnavailableException
+
+    errors = {
+        "invalid": InvalidInputException("La contraseña no cumple la política."),
+        "unavailable": ServiceUnavailableException("Servicio no disponible."),
+    }
+    raise errors[kind]
+
+
+@pytest.mark.parametrize(
+    ("kind", "status", "detail"),
+    [
+        ("invalid", 422, "La contraseña no cumple la política."),
+        ("unavailable", 503, "Servicio no disponible."),
+    ],
+)
+async def test_input_and_availability_errors_have_their_own_status(client, kind, status, detail):
+    r = await client.get(f"/raise-new/{kind}")
+    assert r.status_code == status
+    assert r.json() == {"detail": detail}

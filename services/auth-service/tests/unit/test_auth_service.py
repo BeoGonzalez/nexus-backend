@@ -19,7 +19,7 @@ async def test_login_returns_tokens_from_identity_provider(idp):
 
 
 async def test_register_publishes_user_registered_with_idp_subject(idp, publisher):
-    user = await AuthService(idp, publisher).register(RegisterRequest(name="Ana", email="ana@b.cl", password="12345678"))
+    user = await AuthService(idp, publisher).register(RegisterRequest(name="Ana", email="ana@b.cl", password="Segura#2026abc"))
     assert user.id == "sub-123"
     assert user.is_confirmed is False
     [(key, event)] = publisher.published
@@ -30,7 +30,7 @@ async def test_register_publishes_user_registered_with_idp_subject(idp, publishe
 
 async def test_register_succeeds_even_if_broker_is_down(idp):
     user = await AuthService(idp, FakePublisher(fail=True)).register(
-        RegisterRequest(name="Ana", email="ana@b.cl", password="12345678")
+        RegisterRequest(name="Ana", email="ana@b.cl", password="Segura#2026abc")
     )
     assert user.email == "ana@b.cl"
 
@@ -43,9 +43,9 @@ async def test_refresh_keeps_original_refresh_token_when_idp_omits_it(idp):
 
 async def test_reset_password_forwards_code_and_new_password(idp):
     await AuthService(idp).reset_password(
-        ResetPasswordRequest(email="a@b.cl", confirmation_code="123456", new_password="newpass99")
+        ResetPasswordRequest(email="a@b.cl", confirmation_code="123456", new_password="Segura#2026abc")
     )
-    assert idp.calls == [("confirm_forgot_password", ("a@b.cl", "123456", "newpass99"))]
+    assert idp.calls == [("confirm_forgot_password", ("a@b.cl", "123456", "Segura#2026abc"))]
 
 
 async def test_identity_provider_errors_propagate(idp):

@@ -1,13 +1,24 @@
 import pytest
 from pydantic import ValidationError
 
-from auth_service.application.dtos import ConfirmSignUpRequest, LoginRequest, RegisterRequest
+from auth_service.application.dtos import (
+    ConfirmSignUpRequest,
+    LoginRequest,
+    RegisterRequest,
+    ResetPasswordRequest,
+)
 
 
-@pytest.mark.parametrize("password", ["", "1234567"])
-def test_register_requires_password_of_at_least_8_chars(password):
+# Misma longitud mínima que el User Pool (terraform auth.tf: minimum_length = 12).
+@pytest.mark.parametrize("password", ["", "1234567", "Abcdef1!xyz"])
+def test_register_requires_password_of_at_least_12_chars(password):
     with pytest.raises(ValidationError):
         RegisterRequest(name="Ana", email="a@b.cl", password=password)
+
+
+def test_reset_password_requires_new_password_of_at_least_12_chars():
+    with pytest.raises(ValidationError):
+        ResetPasswordRequest(email="a@b.cl", confirmation_code="123456", new_password="Abcdef1!xyz")
 
 
 @pytest.mark.parametrize("code", ["12345", "1234567"])

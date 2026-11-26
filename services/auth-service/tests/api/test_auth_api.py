@@ -27,7 +27,7 @@ async def test_login_with_rejected_credentials_is_401(client, idp):
 
 
 async def test_register_returns_201_and_publishes(client, publisher):
-    r = await client.post("/api/v1/auth/register", json={"name": "Ana", "email": "ana@b.cl", "password": "12345678"})
+    r = await client.post("/api/v1/auth/register", json={"name": "Ana", "email": "ana@b.cl", "password": "Segura#2026abc"})
     assert r.status_code == 201
     assert r.json()["id"] == "sub-123"
     assert [k for k, _ in publisher.published] == ["user.registered"]
@@ -36,7 +36,7 @@ async def test_register_returns_201_and_publishes(client, publisher):
 @pytest.mark.parametrize("path,body", [
     ("/api/v1/auth/confirm", {"email": "a@b.cl", "confirmation_code": "123456"}),
     ("/api/v1/auth/forgot-password", {"email": "a@b.cl"}),
-    ("/api/v1/auth/reset-password", {"email": "a@b.cl", "confirmation_code": "123456", "new_password": "newpass99"}),
+    ("/api/v1/auth/reset-password", {"email": "a@b.cl", "confirmation_code": "123456", "new_password": "Segura#2026abc"}),
 ])
 async def test_account_flows_report_success(client, path, body):
     r = await client.post(path, json=body)
@@ -78,3 +78,12 @@ async def test_health_reports_cognito_not_configured_in_tests(client):
     body = (await client.get("/api/v1/auth/health")).json()
     assert body["status"] == "healthy"
     assert body["cognito_configured"] is False
+
+
+async def test_register_existing_user_is_409_with_explicit_message(client, idp):
+    from nexus_core.domain.exceptions import BusinessRuleViolationException
+
+    idp.fail_with = BusinessRuleViolationException("Este usuario ya está registrado.")
+    r = await client.post("/api/v1/auth/register", json={"name": "Ana", "email": "ana@b.cl", "password": "Segura#2026abc"})
+    assert r.status_code == 409
+    assert r.json() == {"detail": "Este usuario ya está registrado."}

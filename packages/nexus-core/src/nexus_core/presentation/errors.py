@@ -15,7 +15,9 @@ from nexus_core.domain.exceptions import (
     BusinessRuleViolationException,
     DomainException,
     ForbiddenException,
+    InvalidInputException,
     ResourceNotFoundException,
+    ServiceUnavailableException,
     UnauthorizedException,
 )
 from nexus_core.presentation.request_id import REQUEST_ID_HEADER, get_request_id
@@ -29,6 +31,8 @@ _DOMAIN_STATUS: list[tuple[type[DomainException], int]] = [
     (BusinessRuleViolationException, status.HTTP_409_CONFLICT),
     (UnauthorizedException, status.HTTP_401_UNAUTHORIZED),
     (ForbiddenException, status.HTTP_403_FORBIDDEN),
+    (InvalidInputException, status.HTTP_422_UNPROCESSABLE_ENTITY),
+    (ServiceUnavailableException, status.HTTP_503_SERVICE_UNAVAILABLE),
 ]
 
 

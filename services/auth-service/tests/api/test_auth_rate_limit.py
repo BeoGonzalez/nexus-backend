@@ -24,9 +24,9 @@ async def test_sixth_login_for_same_email_is_429_even_rotating_ips(client):
     "path, body",
     [
         ("/api/v1/auth/forgot-password", {"email": "victim@nexus.cl"}),
-        ("/api/v1/auth/reset-password", {"email": "victim@nexus.cl", "confirmation_code": "123456", "new_password": "newpass99"}),
+        ("/api/v1/auth/reset-password", {"email": "victim@nexus.cl", "confirmation_code": "123456", "new_password": "Segura#2026abc"}),
         ("/api/v1/auth/confirm", {"email": "victim@nexus.cl", "confirmation_code": "123456"}),
-        ("/api/v1/auth/register", {"name": "Ana", "email": "victim@nexus.cl", "password": "12345678"}),
+        ("/api/v1/auth/register", {"name": "Ana", "email": "victim@nexus.cl", "password": "Segura#2026abc"}),
     ],
 )
 async def test_other_credential_endpoints_are_rate_limited(client, path, body):
