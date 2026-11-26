@@ -1,5 +1,5 @@
 {
-  "title": "Nexus - Visión general",
+  "title": "Nexus · 0 · Visión general",
   "uid": "nexus-overview",
   "tags": [
     "nexus",
@@ -16,7 +16,7 @@
   "panels": [
     {
       "type": "row",
-      "title": "Modelo de IA (ai-agent)",
+      "title": "Nexus Bot (ai-agent-service)",
       "id": 1,
       "gridPos": {
         "h": 1,
@@ -48,13 +48,14 @@
             "type": "prometheus",
             "uid": "${prom}"
           },
-          "expr": "sum by (type) (rate(nexus_llm_tokens_total[5m])) * 60",
+          "expr": "sum by (type) (rate(nexus_llm_tokens_total[$__rate_interval])) * 60 or vector(0)",
           "legendFormat": "{{type}}"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short"
+          "unit": "short",
+          "noValue": "Sin datos en este rango: ¿está encendido el Learner Lab?"
         },
         "overrides": []
       },
@@ -82,13 +83,14 @@
             "type": "prometheus",
             "uid": "${prom}"
           },
-          "expr": "sum by (outcome) (rate(nexus_llm_requests_total[5m])) * 60",
+          "expr": "sum by (outcome) (rate(nexus_llm_requests_total[$__rate_interval])) * 60 or vector(0)",
           "legendFormat": "{{outcome}}"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short"
+          "unit": "short",
+          "noValue": "Sin datos en este rango: ¿está encendido el Learner Lab?"
         },
         "overrides": []
       },
@@ -116,13 +118,14 @@
             "type": "prometheus",
             "uid": "${prom}"
           },
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(nexus_llm_request_duration_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(nexus_llm_request_duration_seconds_bucket[$__rate_interval])))",
           "legendFormat": "p95"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "s"
+          "unit": "s",
+          "noValue": "Sin solicitudes en este rango: un percentil necesita tráfico (ver guía)"
         },
         "overrides": []
       },
@@ -150,13 +153,14 @@
             "type": "prometheus",
             "uid": "${prom}"
           },
-          "expr": "sum(increase(nexus_llm_tokens_total[24h]))",
+          "expr": "sum(increase(nexus_llm_tokens_total[24h])) or vector(0)",
           "legendFormat": "tokens"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short"
+          "unit": "short",
+          "noValue": "Sin datos en este rango: ¿está encendido el Learner Lab?"
         },
         "overrides": []
       },
@@ -184,13 +188,14 @@
             "type": "prometheus",
             "uid": "${prom}"
           },
-          "expr": "sum by (reason) (increase(nexus_llm_quota_rejections_total[1h]))",
+          "expr": "sum by (reason) (increase(nexus_llm_quota_rejections_total[1h])) or vector(0)",
           "legendFormat": "{{reason}}"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short"
+          "unit": "short",
+          "noValue": "Sin datos en este rango: ¿está encendido el Learner Lab?"
         },
         "overrides": []
       },
@@ -218,13 +223,14 @@
             "type": "prometheus",
             "uid": "${prom}"
           },
-          "expr": "sum by (event) (increase(nexus_llm_security_events_total[1h]))",
+          "expr": "sum by (event) (increase(nexus_llm_security_events_total[1h])) or vector(0)",
           "legendFormat": "{{event}}"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short"
+          "unit": "short",
+          "noValue": "Sin datos en este rango: ¿está encendido el Learner Lab?"
         },
         "overrides": []
       },
@@ -252,13 +258,14 @@
             "type": "prometheus",
             "uid": "${prom}"
           },
-          "expr": "histogram_quantile(0.5, sum by (le) (rate(nexus_llm_rag_results_bucket[15m])))",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(nexus_llm_rag_results_bucket[$__rate_interval])))",
           "legendFormat": "p50"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short"
+          "unit": "short",
+          "noValue": "Sin solicitudes en este rango: un percentil necesita tráfico (ver guía)"
         },
         "overrides": []
       },
@@ -298,13 +305,14 @@
             "type": "prometheus",
             "uid": "${prom}"
           },
-          "expr": "sum by (job) (rate(http_server_request_duration_seconds_count{job=~\"nexus/.*\"}[5m]))",
+          "expr": "sum by (job) (rate(http_server_request_duration_seconds_count{job=~\"nexus/.*\"}[$__rate_interval])) or vector(0)",
           "legendFormat": "{{job}}"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "reqps"
+          "unit": "reqps",
+          "noValue": "Sin datos en este rango: ¿está encendido el Learner Lab?"
         },
         "overrides": []
       },
@@ -332,13 +340,14 @@
             "type": "prometheus",
             "uid": "${prom}"
           },
-          "expr": "sum by (job) (rate(http_server_request_duration_seconds_count{job=~\"nexus/.*\", http_response_status_code=~\"5..\"}[5m])) / clamp_min(sum by (job) (rate(http_server_request_duration_seconds_count{job=~\"nexus/.*\"}[5m])), 1e-9)",
+          "expr": "sum by (job) (rate(http_server_request_duration_seconds_count{job=~\"nexus/.*\", http_response_status_code=~\"5..\"}[$__rate_interval])) / clamp_min(sum by (job) (rate(http_server_request_duration_seconds_count{job=~\"nexus/.*\"}[$__rate_interval])), 1e-9) or vector(0)",
           "legendFormat": "{{job}}"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "percentunit"
+          "unit": "percentunit",
+          "noValue": "Sin datos en este rango: ¿está encendido el Learner Lab?"
         },
         "overrides": []
       },
@@ -366,13 +375,14 @@
             "type": "prometheus",
             "uid": "${prom}"
           },
-          "expr": "histogram_quantile(0.95, sum by (job, le) (rate(http_server_request_duration_seconds_bucket{job=~\"nexus/.*\"}[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (job, le) (rate(http_server_request_duration_seconds_bucket{job=~\"nexus/.*\"}[$__rate_interval])))",
           "legendFormat": "{{job}}"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "s"
+          "unit": "s",
+          "noValue": "Sin solicitudes en este rango: un percentil necesita tráfico (ver guía)"
         },
         "overrides": []
       },
@@ -400,13 +410,14 @@
             "type": "prometheus",
             "uid": "${prom}"
           },
-          "expr": "sum by (http_response_status_code) (rate(http_server_request_duration_seconds_count{job=~\"nexus/.*\", http_response_status_code=~\"401|403|429\"}[5m])) * 60",
+          "expr": "sum by (http_response_status_code) (rate(http_server_request_duration_seconds_count{job=~\"nexus/.*\", http_response_status_code=~\"401|403|429\"}[$__rate_interval])) * 60 or vector(0)",
           "legendFormat": "{{http_response_status_code}}"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short"
+          "unit": "short",
+          "noValue": "Sin datos en este rango: ¿está encendido el Learner Lab?"
         },
         "overrides": []
       },
@@ -434,13 +445,14 @@
             "type": "loki",
             "uid": "${loki}"
           },
-          "expr": "sum by (security_event) (count_over_time({namespace=\"nexus\"} | json | security_event != \"\" [5m]))",
+          "expr": "sum by (security_event) (count_over_time({namespace=\"nexus\"} | json | security_event != \"\" [$__auto])) or vector(0)",
           "legendFormat": "{{security_event}}"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short"
+          "unit": "short",
+          "noValue": "Sin datos en este rango: ¿está encendido el Learner Lab?"
         },
         "overrides": []
       },
@@ -480,13 +492,14 @@
             "type": "prometheus",
             "uid": "${prom}"
           },
-          "expr": "sum by (http_route) (rate(http_server_duration_milliseconds_count{job=~\".*nexus-frontend\"}[5m]))",
+          "expr": "sum by (http_route) (rate(http_server_duration_milliseconds_count{job=~\".*nexus-frontend\"}[$__rate_interval])) or vector(0)",
           "legendFormat": "{{http_route}}"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "reqps"
+          "unit": "reqps",
+          "noValue": "Sin datos en este rango: ¿está encendido el Learner Lab?"
         },
         "overrides": []
       },
@@ -514,13 +527,14 @@
             "type": "loki",
             "uid": "${loki}"
           },
-          "expr": "sum(count_over_time({job=\"nexus-frontend\"} |~ \"(?i)error\" [5m]))",
+          "expr": "sum(count_over_time({job=\"nexus-frontend\"} |~ \"(?i)error\" [$__auto])) or vector(0)",
           "legendFormat": "errores"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short"
+          "unit": "short",
+          "noValue": "Sin datos en este rango: ¿está encendido el Learner Lab?"
         },
         "overrides": []
       },
@@ -566,7 +580,8 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "bytes"
+          "unit": "bytes",
+          "noValue": "Sin datos en este rango: ¿está encendido el Learner Lab?"
         },
         "overrides": []
       },
@@ -594,13 +609,14 @@
             "type": "prometheus",
             "uid": "${prom}"
           },
-          "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"nexus\", container!=\"\"}[5m]))",
+          "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"nexus\", container!=\"\"}[$__rate_interval])) or vector(0)",
           "legendFormat": "{{pod}}"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short"
+          "unit": "short",
+          "noValue": "Sin datos en este rango: ¿está encendido el Learner Lab?"
         },
         "overrides": []
       },
@@ -628,7 +644,7 @@
             "type": "prometheus",
             "uid": "${prom}"
           },
-          "expr": "sum by (pod) (increase(kube_pod_container_status_restarts_total{namespace=~\"nexus|observability\"}[1h]))",
+          "expr": "sum by (pod) (increase(kube_pod_container_status_restarts_total{namespace=~\"nexus|observability\"}[1h])) or vector(0)",
           "legendFormat": "reinicios {{pod}}"
         },
         {
@@ -643,7 +659,8 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short"
+          "unit": "short",
+          "noValue": "Sin datos en este rango: ¿está encendido el Learner Lab?"
         },
         "overrides": []
       },
@@ -698,7 +715,8 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short"
+          "unit": "short",
+          "noValue": "Sin datos en este rango: ¿está encendido el Learner Lab?"
         },
         "overrides": []
       },
@@ -726,7 +744,7 @@
             "type": "prometheus",
             "uid": "${prom}"
           },
-          "expr": "sum(rate(pg_stat_database_xact_commit[5m]))",
+          "expr": "sum(rate(pg_stat_database_xact_commit[$__rate_interval])) or vector(0)",
           "legendFormat": "commit"
         },
         {
@@ -735,13 +753,14 @@
             "type": "prometheus",
             "uid": "${prom}"
           },
-          "expr": "sum(rate(pg_stat_database_xact_rollback[5m]))",
+          "expr": "sum(rate(pg_stat_database_xact_rollback[$__rate_interval])) or vector(0)",
           "legendFormat": "rollback"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "ops"
+          "unit": "ops",
+          "noValue": "Sin datos en este rango: ¿está encendido el Learner Lab?"
         },
         "overrides": []
       },
@@ -778,13 +797,14 @@
             "type": "prometheus",
             "uid": "${prom}"
           },
-          "expr": "sum(rate(pg_stat_database_deadlocks[5m]))",
+          "expr": "sum(rate(pg_stat_database_deadlocks[$__rate_interval])) or vector(0)",
           "legendFormat": "deadlocks/s"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short"
+          "unit": "short",
+          "noValue": "Sin datos en este rango: ¿está encendido el Learner Lab?"
         },
         "overrides": []
       },
@@ -839,7 +859,8 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short"
+          "unit": "short",
+          "noValue": "Sin datos en este rango: ¿está encendido el Learner Lab?"
         },
         "overrides": []
       },
@@ -882,7 +903,8 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short"
+          "unit": "short",
+          "noValue": "Sin datos en este rango: ¿está encendido el Learner Lab?"
         },
         "overrides": []
       },
@@ -925,7 +947,8 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short"
+          "unit": "short",
+          "noValue": "Sin datos en este rango: ¿está encendido el Learner Lab?"
         },
         "overrides": []
       },
@@ -959,7 +982,8 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short"
+          "unit": "short",
+          "noValue": "Sin datos en este rango: ¿está encendido el Learner Lab?"
         },
         "overrides": []
       },
@@ -1002,7 +1026,8 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short"
+          "unit": "short",
+          "noValue": "Sin datos en este rango: ¿está encendido el Learner Lab?"
         },
         "overrides": []
       },
@@ -1032,5 +1057,19 @@
         }
       }
     ]
-  }
+  },
+  "links": [
+    {
+      "title": "Dashboards Nexus",
+      "type": "dashboards",
+      "tags": [
+        "nexus"
+      ],
+      "asDropdown": true,
+      "includeVars": false,
+      "keepTime": true,
+      "targetBlank": false,
+      "icon": "external link"
+    }
+  ]
 }
