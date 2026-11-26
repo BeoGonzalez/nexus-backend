@@ -7,6 +7,13 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from langgraph.checkpoint.memory import MemorySaver
 from langsmith import traceable
 
+from ai_agent_service.application.catalog_listing import (
+    MAX_LISTED_GAMES,
+    MAX_PRODUCT_CARDS,
+    filter_listing,
+    format_catalog_listing,
+    is_catalog_listing_query,
+)
 from ai_agent_service.application.crew import run_nexus_crew
 from ai_agent_service.application.graph import build_rag_graph
 from ai_agent_service.domain.entities import AssistantState, ChatMessage
@@ -260,21 +267,30 @@ class AssistantService:
             except Exception as e:
                 logger.debug("Laya decision evaluation failed in chat_stream: %s", e)
 
-        # ---- RAG con degradación controlada (LLM06 #5) y validación de registros del vector store (LLM09)
+        # ---- "¿Qué juegos tienen?": catálogo completo en vivo (Aurora vía catalog-service), no los 10 vecinos del RAG
         video_games: list = []
-        try:
-            embedding = await self._embedding.embed_text(llm_query)
-            found = await self._vector_store.similarity_search(embedding, top_k=min(settings.VECTOR_SEARCH_TOP_K, 10))
-            video_games = [vg for vg in found if _is_valid_catalog_record(vg)][:10]
-            if self._catalog is not None:
-                video_games = await self._catalog.verify(video_games)
-        except Exception as e:
-            logger.warning("RAG no disponible, se responde sin catálogo: %s", type(e).__name__)
-            log_security_event("llm.degraded", level=logging.INFO, user_sub=user_sub, component="vector_store")
+        listing_mode = False
+        if is_catalog_listing_query(clean_query) and hasattr(self._catalog, "list_products"):
+            listing = await self._catalog.list_products(limit=MAX_LISTED_GAMES)
+            if listing:
+                video_games = filter_listing(listing, clean_query)
+                listing_mode = True
+
+        # ---- RAG con degradación controlada (LLM06 #5) y validación de registros del vector store (LLM09)
+        if not listing_mode:
+            try:
+                embedding = await self._embedding.embed_text(llm_query)
+                found = await self._vector_store.similarity_search(embedding, top_k=min(settings.VECTOR_SEARCH_TOP_K, 10))
+                video_games = [vg for vg in found if _is_valid_catalog_record(vg)][:10]
+                if self._catalog is not None:
+                    video_games = await self._catalog.verify(video_games)
+            except Exception as e:
+                logger.warning("RAG no disponible, se responde sin catálogo: %s", type(e).__name__)
+                log_security_event("llm.degraded", level=logging.INFO, user_sub=user_sub, component="vector_store")
 
         self._metrics.rag_results(len(video_games))
-        context_parts = []
-        for i, vg in enumerate(video_games, 1):
+        context_parts = [format_catalog_listing(video_games)] if listing_mode else []
+        for i, vg in enumerate([] if listing_mode else video_games, 1):
             genres = ", ".join(g.name for g in vg.genres) if vg.genres else "N/A"
             stock_info = f"Stock: {vg.stock} unidades" if vg.stock > 0 else "SIN STOCK (0 unidades)"
             context_parts.append(
@@ -286,14 +302,15 @@ class AssistantService:
         context = "\n\n".join(context_parts) if context_parts else "No se encontraron videojuegos relevantes."
 
         external_context = ""
-        if video_games and self._external_knowledge and need_trivia and (intent != "greeting"):
+        lookups = intent != "greeting" and not listing_mode  # un listado no gira en torno a un solo juego
+        if video_games and self._external_knowledge and need_trivia and lookups:
             try:
                 external_context = await self._external_knowledge.fetch_trivia(video_games[0].title)
             except Exception as e:
                 logger.debug("External knowledge fetch error in stream: %s", e)
 
         gaming_news = ""
-        if self._gaming_news and (intent != "greeting"):
+        if self._gaming_news and lookups:
             target_topic = video_games[0].title if video_games else llm_query
             try:
                 gaming_news = await self._gaming_news.fetch_news(target_topic)
@@ -301,7 +318,7 @@ class AssistantService:
                 logger.debug("Gaming news fetch error in stream (Tavily): %s", e)
 
         price_comparison = ""
-        if self._price_comparison and (intent != "greeting"):
+        if self._price_comparison and lookups:
             target_title = video_games[0].title if video_games else llm_query
             target_price = video_games[0].price_clp if video_games else 0
             try:
@@ -312,7 +329,7 @@ class AssistantService:
                 logger.debug("Price comparison fetch error in stream (CheapShark): %s", e)
 
         crew_analysis = ""
-        if settings.ENABLE_CREWAI_ORCHESTRATION and video_games and (intent != "greeting"):
+        if settings.ENABLE_CREWAI_ORCHESTRATION and video_games and lookups:
             underlying_llm = getattr(self._llm, "llm", None)
             crew_analysis = await run_nexus_crew(
                 query=llm_query,
@@ -337,7 +354,7 @@ class AssistantService:
 
         product_data = [
             {"id": str(vg.id), "title": vg.title[:200], "price_clp": str(vg.price_clp)}
-            for vg in video_games
+            for vg in video_games[:MAX_PRODUCT_CARDS]
         ]
         yield f"data: {json.dumps({'type': 'products', 'data': product_data})}\n\n"
 

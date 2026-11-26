@@ -18,6 +18,7 @@ class VideoGame:
     stock: int = 0
     image_url: str | None = None
     genres: list[Genre] = field(default_factory=list)
+    platform: str | None = None
 
 
 @dataclass
