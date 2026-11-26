@@ -7,6 +7,8 @@ Se exportan por OTLP al Alloy del clúster y llegan a Mimir como (nombres Promet
     nexus_llm_rag_results_bucket
     nexus_llm_quota_rejections_total{reason}
     nexus_llm_security_events_total{event}
+    nexus_llm_external_calls_total{source="tavily|cheapshark|wikipedia", outcome="ok|empty|timeout|error"}
+    nexus_llm_external_call_duration_seconds_bucket{source}
 
 Atributos de cardinalidad acotada y SIN datos personales (nunca sub, email ni texto del prompt).
 Sin MeterProvider configurado (desarrollo/tests) las llamadas son no-ops del API de OpenTelemetry.
@@ -17,6 +19,9 @@ from __future__ import annotations
 from opentelemetry import metrics as otel_metrics
 
 _MAX_LABEL = 40
+
+EXTERNAL_SOURCES = ("tavily", "cheapshark", "wikipedia")
+EXTERNAL_OUTCOMES = ("ok", "empty", "timeout", "error")
 
 
 def _label(value: str) -> str:
@@ -33,6 +38,14 @@ class LLMMetrics:
         self._rag = meter.create_histogram("nexus_llm_rag_results", description="Juegos recuperados del vector store")
         self._quota = meter.create_counter("nexus_llm_quota_rejections", description="Peticiones rechazadas por cuota")
         self._security = meter.create_counter("nexus_llm_security_events", description="Eventos de seguridad del LLM")
+        self._external = meter.create_counter("nexus_llm_external_calls",
+                                              description="Llamadas a APIs externas del asistente por resultado")
+        self._external_duration = meter.create_histogram("nexus_llm_external_call_duration", unit="s",
+                                                         description="Duración de una llamada a una API externa")
+        # Cada serie arranca en 0: si naciera con el primer valor, rate()/increase() no verían esa primera llamada.
+        for source in EXTERNAL_SOURCES:
+            for outcome in EXTERNAL_OUTCOMES:
+                self._external.add(0, {"source": source, "outcome": outcome})
 
     def tokens(self, *, input_tokens: int, output_tokens: int, model: str) -> None:
         if input_tokens > 0:
@@ -52,6 +65,11 @@ class LLMMetrics:
 
     def security_event(self, event: str) -> None:
         self._security.add(1, {"event": _label(event)})
+
+    def external_call(self, *, source: str, outcome: str, seconds: float) -> None:
+        """Resultado de una llamada a Tavily, CheapShark o Wikipedia (ok | empty | timeout | error)."""
+        self._external.add(1, {"source": _label(source), "outcome": _label(outcome)})
+        self._external_duration.record(max(0.0, seconds), {"source": _label(source)})
 
 
 _DEFAULT: LLMMetrics | None = None

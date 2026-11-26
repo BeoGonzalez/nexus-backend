@@ -1,14 +1,20 @@
 """Adaptador para análisis y comparativa de precios de videojuegos mediante CheapShark API."""
 
 import logging
+import time
 from typing import Any
 
 import httpx
 
 from ai_agent_service.domain.ports import PriceComparisonPort
 from ai_agent_service.config import get_settings
+from ai_agent_service.infrastructure.llm_metrics import LLMMetrics, default_metrics
 
 logger = logging.getLogger(__name__)
+
+
+class _CheapSharkHttpError(Exception):
+    """Respuesta HTTP distinta de 200: cuenta como error (no como "juego no encontrado")."""
 
 # Mapa conocido de tiendas principales en CheapShark
 DEFAULT_STORE_NAMES: dict[str, str] = {
@@ -37,8 +43,10 @@ class CheapSharkPriceAdapter(PriceComparisonPort):
         usd_to_clp_rate: float | None = None,
         usd_clp_rate: float | None = None,
         client: httpx.AsyncClient | None = None,
+        metrics: LLMMetrics | None = None,
     ) -> None:
         settings = get_settings()
+        self._metrics = metrics
         self._enabled = enabled if enabled is not None else settings.CHEAPSHARK_ENABLED
         rate = usd_clp_rate if usd_clp_rate is not None else usd_to_clp_rate
         self._usd_rate = rate or settings.CHEAPSHARK_USD_CLP_RATE
@@ -81,8 +89,7 @@ class CheapSharkPriceAdapter(PriceComparisonPort):
         )
 
         if search_res.status_code != 200:
-            logger.debug("CheapShark search error %d para '%s'", search_res.status_code, clean_title)
-            return empty_result
+            raise _CheapSharkHttpError(search_res.status_code)
 
         games_found = search_res.json()
         if not games_found or not isinstance(games_found, list):
@@ -103,7 +110,7 @@ class CheapSharkPriceAdapter(PriceComparisonPort):
         )
 
         if deals_res.status_code != 200:
-            return empty_result
+            raise _CheapSharkHttpError(deals_res.status_code)
 
         deals_data = deals_res.json()
         raw_deals = deals_data.get("deals", [])
@@ -208,12 +215,23 @@ class CheapSharkPriceAdapter(PriceComparisonPort):
 
         clean_title = game_title.strip()
 
+        started = time.monotonic()
+        result, outcome = empty_result, "error"
         try:
             if self._client:
-                return await self._compare_with_client(self._client, clean_title, nexus_price_clp, empty_result)
-            async with httpx.AsyncClient(timeout=8.0, headers=self._headers) as client:
-                return await self._compare_with_client(client, clean_title, nexus_price_clp, empty_result)
-        except Exception as exc:
-            logger.debug("Fallo al comparar precios en CheapShark para '%s': %s", clean_title, exc)
-            return empty_result
+                result = await self._compare_with_client(self._client, clean_title, nexus_price_clp, empty_result)
+            else:
+                async with httpx.AsyncClient(timeout=8.0, headers=self._headers) as client:
+                    result = await self._compare_with_client(client, clean_title, nexus_price_clp, empty_result)
+            outcome = "ok" if result.get("has_data") else "empty"
+        except httpx.TimeoutException:
+            outcome = "timeout"
+            logger.warning("CheapShark: timeout tras %.1f s", time.monotonic() - started)
+        except _CheapSharkHttpError as exc:
+            logger.warning("CheapShark: la API respondió HTTP %s", exc)
+        except Exception as exc:  # sin el título en el log: puede venir de la pregunta del usuario
+            logger.warning("CheapShark: fallo de la llamada (%s)", type(exc).__name__)
+        (self._metrics or default_metrics()).external_call(
+            source="cheapshark", outcome=outcome, seconds=time.monotonic() - started)
+        return result
 

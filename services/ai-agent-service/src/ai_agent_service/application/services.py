@@ -301,32 +301,33 @@ class AssistantService:
             )
         context = "\n\n".join(context_parts) if context_parts else "No se encontraron videojuegos relevantes."
 
-        external_context = ""
+        # ---- Wikipedia, Tavily y CheapShark EN PARALELO: el chat espera a la más lenta, no la suma de las tres
+        # (en serie, su latencia acercaba el chat al límite de 29 s de API Gateway). Cada adaptador registra su
+        # resultado en nexus_llm_external_calls y nunca lanza; aquí solo se protege de fallos inesperados.
         lookups = intent != "greeting" and not listing_mode  # un listado no gira en torno a un solo juego
-        if video_games and self._external_knowledge and need_trivia and lookups:
-            try:
-                external_context = await self._external_knowledge.fetch_trivia(video_games[0].title)
-            except Exception as e:
-                logger.debug("External knowledge fetch error in stream: %s", e)
+        target = video_games[0].title if video_games else llm_query
 
-        gaming_news = ""
-        if self._gaming_news and lookups:
-            target_topic = video_games[0].title if video_games else llm_query
-            try:
-                gaming_news = await self._gaming_news.fetch_news(target_topic)
-            except Exception as e:
-                logger.debug("Gaming news fetch error in stream (Tavily): %s", e)
+        async def _trivia() -> str:
+            if not (video_games and self._external_knowledge and need_trivia and lookups):
+                return ""
+            return await self._external_knowledge.fetch_trivia(video_games[0].title)
 
-        price_comparison = ""
-        if self._price_comparison and lookups:
-            target_title = video_games[0].title if video_games else llm_query
-            target_price = video_games[0].price_clp if video_games else 0
-            try:
-                comp_data = await self._price_comparison.compare_price(target_title, target_price)
-                if comp_data.get("has_data"):
-                    price_comparison = str(comp_data.get("comparison_summary", ""))
-            except Exception as e:
-                logger.debug("Price comparison fetch error in stream (CheapShark): %s", e)
+        async def _news() -> str:
+            if not (self._gaming_news and lookups):
+                return ""
+            return await self._gaming_news.fetch_news(target)
+
+        async def _prices() -> str:
+            if not (self._price_comparison and lookups):
+                return ""
+            comp_data = await self._price_comparison.compare_price(target, video_games[0].price_clp if video_games else 0)
+            return str(comp_data.get("comparison_summary", "")) if comp_data.get("has_data") else ""
+
+        results = await asyncio.gather(_trivia(), _news(), _prices(), return_exceptions=True)
+        for name, result in zip(("wikipedia", "tavily", "cheapshark"), results):
+            if isinstance(result, BaseException):
+                logger.warning("Búsqueda externa %s falló sin controlar (%s)", name, type(result).__name__)
+        external_context, gaming_news, price_comparison = (r if isinstance(r, str) else "" for r in results)
 
         crew_analysis = ""
         if settings.ENABLE_CREWAI_ORCHESTRATION and video_games and lookups:

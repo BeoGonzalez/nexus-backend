@@ -60,10 +60,25 @@ def test_every_panel_explains_an_empty_result(dashboard):
     assert missing == []
 
 
+def is_ratio(panel):
+    return panel.get("fieldConfig", {}).get("defaults", {}).get("unit") in ("percentunit", "percent")
+
+
 def test_counters_and_rates_fall_back_to_zero(dashboard):
     bad = [(p["title"], e) for p in panels(dashboard) for e in exprs(p)
-           if COUNTER.search(e) and not QUANTILE.search(e) and "or vector(0)" not in e]
+           if COUNTER.search(e) and not QUANTILE.search(e) and not is_ratio(p) and "or vector(0)" not in e]
     assert bad == []
+
+
+def test_ratios_never_show_0_percent_when_there_was_no_traffic(dashboard):
+    """Un % sin llamadas no es 0 % (en rojo): solo el numerador cae a 0; sin denominador se ve el texto explicativo."""
+    for p in panels(dashboard):
+        if is_ratio(p):
+            for e in exprs(p):
+                assert not e.rstrip().endswith("or vector(0)"), (p["title"], e[-80:])
+                if " / clamp_min(" in e:
+                    # numerador "or total * 0": conserva las etiquetas (p. ej. by (job)), a diferencia de vector(0)
+                    assert ") * 0) / clamp_min(" in e, (p["title"], "el numerador debe caer a total * 0")
 
 
 def test_backend_service_variable_lists_all_seven_services_even_without_traffic():
@@ -120,3 +135,51 @@ def test_traceql_metrics_panels_stay_within_the_25h_limit_of_grafana_cloud(dashb
             for t in p.get("targets") or [])
         if traceql_metrics:
             assert p.get("timeFrom") == "24h" and "24 h" in p["title"], p["title"]
+
+
+LLM_COUNTER = re.compile(r"\b(rate|increase)\((nexus_llm_\w+)")
+
+
+def test_llm_counters_also_count_series_born_inside_the_window(dashboard):
+    """Un contador de OpenTelemetry nace con el valor del primer chat (no en 0) y cada reinicio del pod crea una
+    serie nueva: rate()/increase() solos no lo ven y el Nexus Bot quedaba en 0 aunque hubiera chats."""
+    bad = [(p["title"], e) for p in panels(dashboard) for e in exprs(p)
+           if LLM_COUNTER.search(e) and "unless on(" not in e]
+    assert bad == []
+
+
+def test_assistant_log_panel_shows_every_chat_not_only_warnings():
+    ai = load(next(p for p in DASHBOARDS if p.stem == "nexus-ai-model"))
+    logs = [p for p in panels(ai) if p["type"] == "logs" and p["title"].startswith("Eventos del asistente")]
+    assert logs and all("llm" in t["expr"] for p in logs for t in p["targets"])
+
+
+def test_logql_regex_filters_use_backticks_to_avoid_invalid_escapes(dashboard):
+    """`|~ "llm\."` es un escape inválido en LogQL ("invalid char escape"); con backticks no hace falta escapar."""
+    for p in panels(dashboard):
+        for e in exprs(p):
+            assert not re.search(r'\|~\s*"[^"]*\[.]', e), (p["title"], e)
+
+
+def test_timeseries_add_the_birth_value_instead_of_choosing_it_with_or(dashboard):
+    """`rate(x) or nacimiento` falla si el pod ya exportó 2 muestras iguales: rate() da 0 y gana el `or`.
+    Hay que sumar ambos: (rate + nacimiento) or rate or nacimiento."""
+    for p in panels(dashboard):
+        for e in exprs(p):
+            chosen = e.count("$__rate_interval]) or ((nexus_llm")
+            added = e.count("$__rate_interval]) + ((nexus_llm")
+            assert chosen <= added, (p["title"], e[:160])
+
+
+def test_nexus_bot_dashboard_shows_whether_each_external_api_works():
+    """Tavily, CheapShark y Wikipedia fallaban en silencio (DEBUG): ahora cada una tiene su tasa de éxito y latencia."""
+    ai = load(next(p for p in DASHBOARDS if p.stem == "nexus-ai-model"))
+    rows = [p["title"] for p in ai["panels"] if p["type"] == "row"]
+    assert "APIs externas (Tavily, CheapShark, Wikipedia)" in rows
+    assert rows.index("APIs externas (Tavily, CheapShark, Wikipedia)") == rows.index("Seguridad y cuotas") + 1
+    exprs_all = [e for p in panels(ai) for e in exprs(p)]
+    for source in ("tavily", "cheapshark", "wikipedia"):
+        assert any(f'source="{source}"' in e and "nexus_llm_external_calls_total" in e for e in exprs_all), source
+    assert any("nexus_llm_external_call_duration_seconds_bucket" in e for e in exprs_all)
+    ys = [(p["gridPos"]["y"], p["gridPos"]["x"]) for p in ai["panels"]]
+    assert len(ys) == len(set(ys)), "dos paneles en la misma posición"

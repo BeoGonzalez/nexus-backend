@@ -126,7 +126,7 @@
             "type": "prometheus",
             "uid": "${prom}"
           },
-          "expr": "sum(increase(nexus_llm_tokens_total{model=~\"$model\"}[24h])) or vector(0)",
+          "expr": "sum(((increase(nexus_llm_tokens_total{model=~\"$model\"}[24h]) + (min_over_time(nexus_llm_tokens_total{model=~\"$model\"}[24h]) unless on(instance, type, model) (nexus_llm_tokens_total{model=~\"$model\"} offset 24h))) or increase(nexus_llm_tokens_total{model=~\"$model\"}[24h]) or (min_over_time(nexus_llm_tokens_total{model=~\"$model\"}[24h]) unless on(instance, type, model) (nexus_llm_tokens_total{model=~\"$model\"} offset 24h)))) or vector(0)",
           "legendFormat": "__auto",
           "range": false,
           "instant": true
@@ -176,7 +176,7 @@
             "type": "prometheus",
             "uid": "${prom}"
           },
-          "expr": "sum(increase(nexus_llm_tokens_total{model=~\"$model\", type=\"input\"}[24h])) or vector(0)",
+          "expr": "sum(((increase(nexus_llm_tokens_total{model=~\"$model\", type=\"input\"}[24h]) + (min_over_time(nexus_llm_tokens_total{model=~\"$model\", type=\"input\"}[24h]) unless on(instance, type, model) (nexus_llm_tokens_total{model=~\"$model\", type=\"input\"} offset 24h))) or increase(nexus_llm_tokens_total{model=~\"$model\", type=\"input\"}[24h]) or (min_over_time(nexus_llm_tokens_total{model=~\"$model\", type=\"input\"}[24h]) unless on(instance, type, model) (nexus_llm_tokens_total{model=~\"$model\", type=\"input\"} offset 24h)))) or vector(0)",
           "legendFormat": "__auto",
           "range": false,
           "instant": true
@@ -226,7 +226,7 @@
             "type": "prometheus",
             "uid": "${prom}"
           },
-          "expr": "sum(increase(nexus_llm_tokens_total{model=~\"$model\", type=\"output\"}[24h])) or vector(0)",
+          "expr": "sum(((increase(nexus_llm_tokens_total{model=~\"$model\", type=\"output\"}[24h]) + (min_over_time(nexus_llm_tokens_total{model=~\"$model\", type=\"output\"}[24h]) unless on(instance, type, model) (nexus_llm_tokens_total{model=~\"$model\", type=\"output\"} offset 24h))) or increase(nexus_llm_tokens_total{model=~\"$model\", type=\"output\"}[24h]) or (min_over_time(nexus_llm_tokens_total{model=~\"$model\", type=\"output\"}[24h]) unless on(instance, type, model) (nexus_llm_tokens_total{model=~\"$model\", type=\"output\"} offset 24h)))) or vector(0)",
           "legendFormat": "__auto",
           "range": false,
           "instant": true
@@ -276,7 +276,7 @@
             "type": "prometheus",
             "uid": "${prom}"
           },
-          "expr": "sum(increase(nexus_llm_tokens_total{model=~\"$model\"}[1h])) / clamp_min(sum(increase(nexus_llm_requests_total[1h])), 1) or vector(0)",
+          "expr": "sum(((increase(nexus_llm_tokens_total{model=~\"$model\"}[1h]) + (min_over_time(nexus_llm_tokens_total{model=~\"$model\"}[1h]) unless on(instance, type, model) (nexus_llm_tokens_total{model=~\"$model\"} offset 1h))) or increase(nexus_llm_tokens_total{model=~\"$model\"}[1h]) or (min_over_time(nexus_llm_tokens_total{model=~\"$model\"}[1h]) unless on(instance, type, model) (nexus_llm_tokens_total{model=~\"$model\"} offset 1h)))) / clamp_min(sum(((increase(nexus_llm_requests_total[1h]) + (min_over_time(nexus_llm_requests_total[1h]) unless on(instance, outcome, intent) (nexus_llm_requests_total offset 1h))) or increase(nexus_llm_requests_total[1h]) or (min_over_time(nexus_llm_requests_total[1h]) unless on(instance, outcome, intent) (nexus_llm_requests_total offset 1h)))), 1) or vector(0)",
           "legendFormat": "__auto",
           "range": false,
           "instant": true
@@ -327,7 +327,7 @@
             "type": "prometheus",
             "uid": "${prom}"
           },
-          "expr": "sum by (type) (rate(nexus_llm_tokens_total{model=~\"$model\"}[$__rate_interval])) * 60 or vector(0)",
+          "expr": "sum by (type) (((rate(nexus_llm_tokens_total{model=~\"$model\"}[$__rate_interval]) + ((nexus_llm_tokens_total{model=~\"$model\"} unless on(instance, type, model) (nexus_llm_tokens_total{model=~\"$model\"} offset $__interval)) / ($__interval_ms / 1000))) or rate(nexus_llm_tokens_total{model=~\"$model\"}[$__rate_interval]) or ((nexus_llm_tokens_total{model=~\"$model\"} unless on(instance, type, model) (nexus_llm_tokens_total{model=~\"$model\"} offset $__interval)) / ($__interval_ms / 1000)))) * 60 or vector(0)",
           "legendFormat": "{{type}}",
           "range": true
         }
@@ -383,7 +383,7 @@
             "type": "prometheus",
             "uid": "${prom}"
           },
-          "expr": "sum by (model) (increase(nexus_llm_tokens_total[24h])) or vector(0)",
+          "expr": "sum by (model) (((increase(nexus_llm_tokens_total[24h]) + (min_over_time(nexus_llm_tokens_total[24h]) unless on(instance, type, model) (nexus_llm_tokens_total offset 24h))) or increase(nexus_llm_tokens_total[24h]) or (min_over_time(nexus_llm_tokens_total[24h]) unless on(instance, type, model) (nexus_llm_tokens_total offset 24h)))) or vector(0)",
           "legendFormat": "{{model}}",
           "range": true
         }
@@ -444,7 +444,7 @@
             "type": "prometheus",
             "uid": "${prom}"
           },
-          "expr": "sum(increase(nexus_llm_requests_total[1h])) or vector(0)",
+          "expr": "sum(((increase(nexus_llm_requests_total[1h]) + (min_over_time(nexus_llm_requests_total[1h]) unless on(instance, outcome, intent) (nexus_llm_requests_total offset 1h))) or increase(nexus_llm_requests_total[1h]) or (min_over_time(nexus_llm_requests_total[1h]) unless on(instance, outcome, intent) (nexus_llm_requests_total offset 1h)))) or vector(0)",
           "legendFormat": "__auto",
           "range": false,
           "instant": true
@@ -494,7 +494,7 @@
             "type": "prometheus",
             "uid": "${prom}"
           },
-          "expr": "sum(rate(nexus_llm_requests_total{outcome=\"ok\"}[$__range])) / clamp_min(sum(rate(nexus_llm_requests_total[$__range])), 1e-9) or vector(0)",
+          "expr": "(sum((((increase(nexus_llm_requests_total{outcome=\"ok\"}[$__range]) + (min_over_time(nexus_llm_requests_total{outcome=\"ok\"}[$__range]) unless on(instance, outcome, intent) (nexus_llm_requests_total{outcome=\"ok\"} offset $__range))) or increase(nexus_llm_requests_total{outcome=\"ok\"}[$__range]) or (min_over_time(nexus_llm_requests_total{outcome=\"ok\"}[$__range]) unless on(instance, outcome, intent) (nexus_llm_requests_total{outcome=\"ok\"} offset $__range))) / $__range_s)) or (sum((((increase(nexus_llm_requests_total[$__range]) + (min_over_time(nexus_llm_requests_total[$__range]) unless on(instance, outcome, intent) (nexus_llm_requests_total offset $__range))) or increase(nexus_llm_requests_total[$__range]) or (min_over_time(nexus_llm_requests_total[$__range]) unless on(instance, outcome, intent) (nexus_llm_requests_total offset $__range))) / $__range_s))) * 0) / clamp_min(sum((((increase(nexus_llm_requests_total[$__range]) + (min_over_time(nexus_llm_requests_total[$__range]) unless on(instance, outcome, intent) (nexus_llm_requests_total offset $__range))) or increase(nexus_llm_requests_total[$__range]) or (min_over_time(nexus_llm_requests_total[$__range]) unless on(instance, outcome, intent) (nexus_llm_requests_total offset $__range))) / $__range_s)), 1e-9)",
           "legendFormat": "__auto",
           "range": false,
           "instant": true
@@ -564,7 +564,7 @@
             "type": "prometheus",
             "uid": "${prom}"
           },
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(nexus_llm_request_duration_seconds_bucket[$__range])))",
+          "expr": "histogram_quantile(0.95, sum by (le) ((((increase(nexus_llm_request_duration_seconds_bucket[$__range]) + (min_over_time(nexus_llm_request_duration_seconds_bucket[$__range]) unless on(instance, outcome, le) (nexus_llm_request_duration_seconds_bucket offset $__range))) or increase(nexus_llm_request_duration_seconds_bucket[$__range]) or (min_over_time(nexus_llm_request_duration_seconds_bucket[$__range]) unless on(instance, outcome, le) (nexus_llm_request_duration_seconds_bucket offset $__range))) / $__range_s)))",
           "legendFormat": "__auto",
           "range": false,
           "instant": true
@@ -635,7 +635,7 @@
             "type": "prometheus",
             "uid": "${prom}"
           },
-          "expr": "sum(increase(nexus_llm_requests_total{outcome=\"timeout\"}[1h])) or vector(0)",
+          "expr": "sum(((increase(nexus_llm_requests_total{outcome=\"timeout\"}[1h]) + (min_over_time(nexus_llm_requests_total{outcome=\"timeout\"}[1h]) unless on(instance, outcome, intent) (nexus_llm_requests_total{outcome=\"timeout\"} offset 1h))) or increase(nexus_llm_requests_total{outcome=\"timeout\"}[1h]) or (min_over_time(nexus_llm_requests_total{outcome=\"timeout\"}[1h]) unless on(instance, outcome, intent) (nexus_llm_requests_total{outcome=\"timeout\"} offset 1h)))) or vector(0)",
           "legendFormat": "__auto",
           "range": false,
           "instant": true
@@ -705,7 +705,7 @@
             "type": "prometheus",
             "uid": "${prom}"
           },
-          "expr": "sum by (outcome) (rate(nexus_llm_requests_total[$__rate_interval])) * 60 or vector(0)",
+          "expr": "sum by (outcome) (((rate(nexus_llm_requests_total[$__rate_interval]) + ((nexus_llm_requests_total unless on(instance, outcome, intent) (nexus_llm_requests_total offset $__interval)) / ($__interval_ms / 1000))) or rate(nexus_llm_requests_total[$__rate_interval]) or ((nexus_llm_requests_total unless on(instance, outcome, intent) (nexus_llm_requests_total offset $__interval)) / ($__interval_ms / 1000)))) * 60 or vector(0)",
           "legendFormat": "{{outcome}}",
           "range": true
         }
@@ -761,7 +761,7 @@
             "type": "prometheus",
             "uid": "${prom}"
           },
-          "expr": "sum by (intent) (rate(nexus_llm_requests_total[$__rate_interval])) * 60 or vector(0)",
+          "expr": "sum by (intent) (((rate(nexus_llm_requests_total[$__rate_interval]) + ((nexus_llm_requests_total unless on(instance, outcome, intent) (nexus_llm_requests_total offset $__interval)) / ($__interval_ms / 1000))) or rate(nexus_llm_requests_total[$__rate_interval]) or ((nexus_llm_requests_total unless on(instance, outcome, intent) (nexus_llm_requests_total offset $__interval)) / ($__interval_ms / 1000)))) * 60 or vector(0)",
           "legendFormat": "{{intent}}",
           "range": true
         }
@@ -817,7 +817,7 @@
             "type": "prometheus",
             "uid": "${prom}"
           },
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(nexus_llm_request_duration_seconds_bucket[$__rate_interval])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (((rate(nexus_llm_request_duration_seconds_bucket[$__rate_interval]) + ((nexus_llm_request_duration_seconds_bucket unless on(instance, outcome, le) (nexus_llm_request_duration_seconds_bucket offset $__interval)) / ($__interval_ms / 1000))) or rate(nexus_llm_request_duration_seconds_bucket[$__rate_interval]) or ((nexus_llm_request_duration_seconds_bucket unless on(instance, outcome, le) (nexus_llm_request_duration_seconds_bucket offset $__interval)) / ($__interval_ms / 1000)))))",
           "legendFormat": "p50",
           "range": true
         },
@@ -827,7 +827,7 @@
             "type": "prometheus",
             "uid": "${prom}"
           },
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(nexus_llm_request_duration_seconds_bucket[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (((rate(nexus_llm_request_duration_seconds_bucket[$__rate_interval]) + ((nexus_llm_request_duration_seconds_bucket unless on(instance, outcome, le) (nexus_llm_request_duration_seconds_bucket offset $__interval)) / ($__interval_ms / 1000))) or rate(nexus_llm_request_duration_seconds_bucket[$__rate_interval]) or ((nexus_llm_request_duration_seconds_bucket unless on(instance, outcome, le) (nexus_llm_request_duration_seconds_bucket offset $__interval)) / ($__interval_ms / 1000)))))",
           "legendFormat": "p95",
           "range": true
         },
@@ -837,7 +837,7 @@
             "type": "prometheus",
             "uid": "${prom}"
           },
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(nexus_llm_request_duration_seconds_bucket[$__rate_interval])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (((rate(nexus_llm_request_duration_seconds_bucket[$__rate_interval]) + ((nexus_llm_request_duration_seconds_bucket unless on(instance, outcome, le) (nexus_llm_request_duration_seconds_bucket offset $__interval)) / ($__interval_ms / 1000))) or rate(nexus_llm_request_duration_seconds_bucket[$__rate_interval]) or ((nexus_llm_request_duration_seconds_bucket unless on(instance, outcome, le) (nexus_llm_request_duration_seconds_bucket offset $__interval)) / ($__interval_ms / 1000)))))",
           "legendFormat": "p99",
           "range": true
         }
@@ -893,7 +893,7 @@
             "type": "prometheus",
             "uid": "${prom}"
           },
-          "expr": "histogram_quantile(0.95, sum by (outcome, le) (rate(nexus_llm_request_duration_seconds_bucket[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by (outcome, le) (((rate(nexus_llm_request_duration_seconds_bucket[$__rate_interval]) + ((nexus_llm_request_duration_seconds_bucket unless on(instance, outcome, le) (nexus_llm_request_duration_seconds_bucket offset $__interval)) / ($__interval_ms / 1000))) or rate(nexus_llm_request_duration_seconds_bucket[$__rate_interval]) or ((nexus_llm_request_duration_seconds_bucket unless on(instance, outcome, le) (nexus_llm_request_duration_seconds_bucket offset $__interval)) / ($__interval_ms / 1000)))))",
           "legendFormat": "{{outcome}}",
           "range": true
         }
@@ -962,7 +962,7 @@
             "type": "prometheus",
             "uid": "${prom}"
           },
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(nexus_llm_rag_results_bucket[$__rate_interval])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (((rate(nexus_llm_rag_results_bucket[$__rate_interval]) + ((nexus_llm_rag_results_bucket unless on(instance, le) (nexus_llm_rag_results_bucket offset $__interval)) / ($__interval_ms / 1000))) or rate(nexus_llm_rag_results_bucket[$__rate_interval]) or ((nexus_llm_rag_results_bucket unless on(instance, le) (nexus_llm_rag_results_bucket offset $__interval)) / ($__interval_ms / 1000)))))",
           "legendFormat": "p50",
           "range": true
         },
@@ -972,7 +972,7 @@
             "type": "prometheus",
             "uid": "${prom}"
           },
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(nexus_llm_rag_results_bucket[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (((rate(nexus_llm_rag_results_bucket[$__rate_interval]) + ((nexus_llm_rag_results_bucket unless on(instance, le) (nexus_llm_rag_results_bucket offset $__interval)) / ($__interval_ms / 1000))) or rate(nexus_llm_rag_results_bucket[$__rate_interval]) or ((nexus_llm_rag_results_bucket unless on(instance, le) (nexus_llm_rag_results_bucket offset $__interval)) / ($__interval_ms / 1000)))))",
           "legendFormat": "p95",
           "range": true
         }
@@ -1028,7 +1028,7 @@
             "type": "prometheus",
             "uid": "${prom}"
           },
-          "expr": "sum(increase(nexus_llm_rag_results_bucket{le=\"0\"}[1h])) or vector(0)",
+          "expr": "sum(((increase(nexus_llm_rag_results_bucket{le=\"0\"}[1h]) + (min_over_time(nexus_llm_rag_results_bucket{le=\"0\"}[1h]) unless on(instance, le) (nexus_llm_rag_results_bucket{le=\"0\"} offset 1h))) or increase(nexus_llm_rag_results_bucket{le=\"0\"}[1h]) or (min_over_time(nexus_llm_rag_results_bucket{le=\"0\"}[1h]) unless on(instance, le) (nexus_llm_rag_results_bucket{le=\"0\"} offset 1h)))) or vector(0)",
           "legendFormat": "sin resultados",
           "range": true
         }
@@ -1097,7 +1097,7 @@
             "type": "prometheus",
             "uid": "${prom}"
           },
-          "expr": "sum by (event) (increase(nexus_llm_security_events_total[1h])) or vector(0)",
+          "expr": "sum by (event) (((increase(nexus_llm_security_events_total[1h]) + (min_over_time(nexus_llm_security_events_total[1h]) unless on(instance, event) (nexus_llm_security_events_total offset 1h))) or increase(nexus_llm_security_events_total[1h]) or (min_over_time(nexus_llm_security_events_total[1h]) unless on(instance, event) (nexus_llm_security_events_total offset 1h)))) or vector(0)",
           "legendFormat": "{{event}}",
           "range": true
         }
@@ -1153,7 +1153,7 @@
             "type": "prometheus",
             "uid": "${prom}"
           },
-          "expr": "sum(increase(nexus_llm_requests_total{outcome=\"leak_blocked\"}[1h])) or vector(0)",
+          "expr": "sum(((increase(nexus_llm_requests_total{outcome=\"leak_blocked\"}[1h]) + (min_over_time(nexus_llm_requests_total{outcome=\"leak_blocked\"}[1h]) unless on(instance, outcome, intent) (nexus_llm_requests_total{outcome=\"leak_blocked\"} offset 1h))) or increase(nexus_llm_requests_total{outcome=\"leak_blocked\"}[1h]) or (min_over_time(nexus_llm_requests_total{outcome=\"leak_blocked\"}[1h]) unless on(instance, outcome, intent) (nexus_llm_requests_total{outcome=\"leak_blocked\"} offset 1h)))) or vector(0)",
           "legendFormat": "leak_blocked",
           "range": true
         }
@@ -1209,7 +1209,7 @@
             "type": "prometheus",
             "uid": "${prom}"
           },
-          "expr": "sum by (reason) (increase(nexus_llm_quota_rejections_total[1h])) or vector(0)",
+          "expr": "sum by (reason) (((increase(nexus_llm_quota_rejections_total[1h]) + (min_over_time(nexus_llm_quota_rejections_total[1h]) unless on(instance, reason) (nexus_llm_quota_rejections_total offset 1h))) or increase(nexus_llm_quota_rejections_total[1h]) or (min_over_time(nexus_llm_quota_rejections_total[1h]) unless on(instance, reason) (nexus_llm_quota_rejections_total offset 1h)))) or vector(0)",
           "legendFormat": "{{reason}}",
           "range": true
         }
@@ -1244,13 +1244,336 @@
       }
     },
     {
+      "type": "row",
+      "title": "APIs externas (Tavily, CheapShark, Wikipedia)",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 54,
+        "w": 24,
+        "h": 1
+      },
+      "id": 33
+    },
+    {
+      "type": "stat",
+      "title": "Tavily (noticias): éxito",
+      "description": "% de búsquedas de noticias que respondieron a tiempo y con resultados. Límite: 6 s.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${prom}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 55,
+        "w": 8,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prom}"
+          },
+          "expr": "(sum(((increase(nexus_llm_external_calls_total{source=\"tavily\", outcome=\"ok\"}[$__range]) + (min_over_time(nexus_llm_external_calls_total{source=\"tavily\", outcome=\"ok\"}[$__range]) unless on(instance, source, outcome) (nexus_llm_external_calls_total{source=\"tavily\", outcome=\"ok\"} offset $__range))) or increase(nexus_llm_external_calls_total{source=\"tavily\", outcome=\"ok\"}[$__range]) or (min_over_time(nexus_llm_external_calls_total{source=\"tavily\", outcome=\"ok\"}[$__range]) unless on(instance, source, outcome) (nexus_llm_external_calls_total{source=\"tavily\", outcome=\"ok\"} offset $__range)))) or (sum(((increase(nexus_llm_external_calls_total{source=\"tavily\"}[$__range]) + (min_over_time(nexus_llm_external_calls_total{source=\"tavily\"}[$__range]) unless on(instance, source, outcome) (nexus_llm_external_calls_total{source=\"tavily\"} offset $__range))) or increase(nexus_llm_external_calls_total{source=\"tavily\"}[$__range]) or (min_over_time(nexus_llm_external_calls_total{source=\"tavily\"}[$__range]) unless on(instance, source, outcome) (nexus_llm_external_calls_total{source=\"tavily\"} offset $__range))))) * 0) / clamp_min(sum(((increase(nexus_llm_external_calls_total{source=\"tavily\"}[$__range]) + (min_over_time(nexus_llm_external_calls_total{source=\"tavily\"}[$__range]) unless on(instance, source, outcome) (nexus_llm_external_calls_total{source=\"tavily\"} offset $__range))) or increase(nexus_llm_external_calls_total{source=\"tavily\"}[$__range]) or (min_over_time(nexus_llm_external_calls_total{source=\"tavily\"}[$__range]) unless on(instance, source, outcome) (nexus_llm_external_calls_total{source=\"tavily\"} offset $__range)))), 1)",
+          "instant": true,
+          "range": false,
+          "legendFormat": "éxito"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "decimals": 0,
+          "noValue": "Se llena cuando el ai-agent con esta métrica esté desplegado y alguien chatee",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.8
+              },
+              {
+                "color": "green",
+                "value": 0.95
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "id": 34
+    },
+    {
+      "type": "stat",
+      "title": "CheapShark (precios): éxito",
+      "description": "% de comparaciones de precio con datos. 'Juego no encontrado' (empty) no cuenta como éxito.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${prom}"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 55,
+        "w": 8,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prom}"
+          },
+          "expr": "(sum(((increase(nexus_llm_external_calls_total{source=\"cheapshark\", outcome=\"ok\"}[$__range]) + (min_over_time(nexus_llm_external_calls_total{source=\"cheapshark\", outcome=\"ok\"}[$__range]) unless on(instance, source, outcome) (nexus_llm_external_calls_total{source=\"cheapshark\", outcome=\"ok\"} offset $__range))) or increase(nexus_llm_external_calls_total{source=\"cheapshark\", outcome=\"ok\"}[$__range]) or (min_over_time(nexus_llm_external_calls_total{source=\"cheapshark\", outcome=\"ok\"}[$__range]) unless on(instance, source, outcome) (nexus_llm_external_calls_total{source=\"cheapshark\", outcome=\"ok\"} offset $__range)))) or (sum(((increase(nexus_llm_external_calls_total{source=\"cheapshark\"}[$__range]) + (min_over_time(nexus_llm_external_calls_total{source=\"cheapshark\"}[$__range]) unless on(instance, source, outcome) (nexus_llm_external_calls_total{source=\"cheapshark\"} offset $__range))) or increase(nexus_llm_external_calls_total{source=\"cheapshark\"}[$__range]) or (min_over_time(nexus_llm_external_calls_total{source=\"cheapshark\"}[$__range]) unless on(instance, source, outcome) (nexus_llm_external_calls_total{source=\"cheapshark\"} offset $__range))))) * 0) / clamp_min(sum(((increase(nexus_llm_external_calls_total{source=\"cheapshark\"}[$__range]) + (min_over_time(nexus_llm_external_calls_total{source=\"cheapshark\"}[$__range]) unless on(instance, source, outcome) (nexus_llm_external_calls_total{source=\"cheapshark\"} offset $__range))) or increase(nexus_llm_external_calls_total{source=\"cheapshark\"}[$__range]) or (min_over_time(nexus_llm_external_calls_total{source=\"cheapshark\"}[$__range]) unless on(instance, source, outcome) (nexus_llm_external_calls_total{source=\"cheapshark\"} offset $__range)))), 1)",
+          "instant": true,
+          "range": false,
+          "legendFormat": "éxito"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "decimals": 0,
+          "noValue": "Se llena cuando el ai-agent con esta métrica esté desplegado y alguien chatee",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.8
+              },
+              {
+                "color": "green",
+                "value": 0.95
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "id": 35
+    },
+    {
+      "type": "stat",
+      "title": "Wikipedia (trivia): éxito",
+      "description": "% de consultas de trivia que devolvieron datos.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${prom}"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 55,
+        "w": 8,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prom}"
+          },
+          "expr": "(sum(((increase(nexus_llm_external_calls_total{source=\"wikipedia\", outcome=\"ok\"}[$__range]) + (min_over_time(nexus_llm_external_calls_total{source=\"wikipedia\", outcome=\"ok\"}[$__range]) unless on(instance, source, outcome) (nexus_llm_external_calls_total{source=\"wikipedia\", outcome=\"ok\"} offset $__range))) or increase(nexus_llm_external_calls_total{source=\"wikipedia\", outcome=\"ok\"}[$__range]) or (min_over_time(nexus_llm_external_calls_total{source=\"wikipedia\", outcome=\"ok\"}[$__range]) unless on(instance, source, outcome) (nexus_llm_external_calls_total{source=\"wikipedia\", outcome=\"ok\"} offset $__range)))) or (sum(((increase(nexus_llm_external_calls_total{source=\"wikipedia\"}[$__range]) + (min_over_time(nexus_llm_external_calls_total{source=\"wikipedia\"}[$__range]) unless on(instance, source, outcome) (nexus_llm_external_calls_total{source=\"wikipedia\"} offset $__range))) or increase(nexus_llm_external_calls_total{source=\"wikipedia\"}[$__range]) or (min_over_time(nexus_llm_external_calls_total{source=\"wikipedia\"}[$__range]) unless on(instance, source, outcome) (nexus_llm_external_calls_total{source=\"wikipedia\"} offset $__range))))) * 0) / clamp_min(sum(((increase(nexus_llm_external_calls_total{source=\"wikipedia\"}[$__range]) + (min_over_time(nexus_llm_external_calls_total{source=\"wikipedia\"}[$__range]) unless on(instance, source, outcome) (nexus_llm_external_calls_total{source=\"wikipedia\"} offset $__range))) or increase(nexus_llm_external_calls_total{source=\"wikipedia\"}[$__range]) or (min_over_time(nexus_llm_external_calls_total{source=\"wikipedia\"}[$__range]) unless on(instance, source, outcome) (nexus_llm_external_calls_total{source=\"wikipedia\"} offset $__range)))), 1)",
+          "instant": true,
+          "range": false,
+          "legendFormat": "éxito"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "decimals": 0,
+          "noValue": "Se llena cuando el ai-agent con esta métrica esté desplegado y alguien chatee",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.8
+              },
+              {
+                "color": "green",
+                "value": 0.95
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "id": 36
+    },
+    {
+      "type": "timeseries",
+      "title": "Llamadas por API y resultado (por minuto)",
+      "description": "ok = respondió con datos · empty = sin resultados (válido) · timeout = superó el límite · error = falló.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${prom}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 60,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prom}"
+          },
+          "expr": "sum by (source, outcome) (((rate(nexus_llm_external_calls_total[$__rate_interval]) + ((nexus_llm_external_calls_total unless on(instance, source, outcome) (nexus_llm_external_calls_total offset $__interval)) / ($__interval_ms / 1000))) or rate(nexus_llm_external_calls_total[$__rate_interval]) or ((nexus_llm_external_calls_total unless on(instance, source, outcome) (nexus_llm_external_calls_total offset $__interval)) / ($__interval_ms / 1000)))) * 60 or vector(0)",
+          "legendFormat": "{{source}} · {{outcome}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Se llena cuando el ai-agent con esta métrica esté desplegado y alguien chatee"
+        },
+        "overrides": []
+      },
+      "id": 37
+    },
+    {
+      "type": "timeseries",
+      "title": "Latencia p95 por API",
+      "description": "El 95 % de las llamadas tardó menos que esto. Corren en paralelo: el chat espera a la más lenta.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${prom}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 60,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prom}"
+          },
+          "expr": "histogram_quantile(0.95, sum by (source, le) (((rate(nexus_llm_external_call_duration_seconds_bucket[$__rate_interval]) + ((nexus_llm_external_call_duration_seconds_bucket unless on(instance, source, le) (nexus_llm_external_call_duration_seconds_bucket offset $__interval)) / ($__interval_ms / 1000))) or rate(nexus_llm_external_call_duration_seconds_bucket[$__rate_interval]) or ((nexus_llm_external_call_duration_seconds_bucket unless on(instance, source, le) (nexus_llm_external_call_duration_seconds_bucket offset $__interval)) / ($__interval_ms / 1000)))))",
+          "legendFormat": "{{source}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Se llena cuando el ai-agent con esta métrica esté desplegado y alguien chatee"
+        },
+        "overrides": []
+      },
+      "id": 38
+    },
+    {
+      "type": "logs",
+      "title": "Fallos de APIs externas (timeouts, HTTP y errores)",
+      "datasource": {
+        "type": "loki",
+        "uid": "${loki}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 68,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "expr": "{namespace=\"nexus\", app=\"ai-agent\"} |~ `(Tavily|CheapShark|Wikipedia): |Búsqueda externa`"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Sin fallos de APIs externas en este rango"
+        },
+        "overrides": []
+      },
+      "id": 39
+    },
+    {
       "id": 25,
       "type": "row",
       "title": "Servicio ai-agent (HTTP, pod y logs)",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 54,
+        "y": 76,
         "w": 24,
         "h": 1
       },
@@ -1267,7 +1590,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 55,
+        "y": 77,
         "w": 8,
         "h": 8
       },
@@ -1323,7 +1646,7 @@
       },
       "gridPos": {
         "x": 8,
-        "y": 55,
+        "y": 77,
         "w": 8,
         "h": 8
       },
@@ -1379,7 +1702,7 @@
       },
       "gridPos": {
         "x": 16,
-        "y": 55,
+        "y": 77,
         "w": 8,
         "h": 8
       },
@@ -1427,7 +1750,7 @@
     {
       "id": 29,
       "type": "logs",
-      "title": "Logs del asistente (warn / error)",
+      "title": "Eventos del asistente (cada chat, avisos y errores)",
       "description": "",
       "datasource": {
         "type": "loki",
@@ -1435,7 +1758,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 63,
+        "y": 85,
         "w": 12,
         "h": 9
       },
@@ -1446,7 +1769,7 @@
             "type": "loki",
             "uid": "${loki}"
           },
-          "expr": "{namespace=\"nexus\", app=\"ai-agent\"} |~ \"(?i)\\\"level\\\": ?\\\"(warning|error|critical)\\\"\"",
+          "expr": "{namespace=\"nexus\", app=\"ai-agent\"} |~ `llm\\.|(?i)\"level\": ?\"(warning|error|critical)\"`",
           "legendFormat": "__auto",
           "queryType": "range"
         }
@@ -1476,7 +1799,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 63,
+        "y": 85,
         "w": 12,
         "h": 9
       },
@@ -1510,7 +1833,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 72,
+        "y": 94,
         "w": 24,
         "h": 1
       },
@@ -1527,7 +1850,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 73,
+        "y": 95,
         "w": 24,
         "h": 12
       },
