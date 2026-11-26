@@ -124,6 +124,33 @@ async def test_local_mode_refresh_rejects_unknown_refresh_token(local_adapter):
         await local_adapter.refresh_tokens("made-up-token", "victim@b.cl")
 
 
+@pytest.mark.parametrize(
+    ("pool_id", "client_id"),
+    [
+        # Valores tal cual vienen en .env.example: copiar el ejemplo no debe activar Cognito.
+        ("us-east-1_xxxxxxxxx", "xxxxxxxxxxxxxxxxxxxxxxxxxx"),
+        ("your-user-pool-id", "client-id"),
+        ("us-east-1_TestPool", "your-app-client-id"),
+    ],
+)
+def test_placeholder_cognito_values_are_not_configured(pool_id, client_id):
+    adapter = CognitoAdapter()
+    adapter.settings = Settings(COGNITO_USER_POOL_ID=pool_id, COGNITO_APP_CLIENT_ID=client_id)
+    assert adapter.is_configured is False
+
+
+async def test_placeholder_cognito_values_register_locally_without_calling_aws(monkeypatch):
+    adapter = CognitoAdapter()
+    adapter.settings = Settings(
+        COGNITO_USER_POOL_ID="us-east-1_xxxxxxxxx",
+        COGNITO_APP_CLIENT_ID="xxxxxxxxxxxxxxxxxxxxxxxxxx",
+        AUTH_LOCAL_MODE=True,
+        JWT_SECRET=TEST_JWT_SECRET,
+    )
+    monkeypatch.setattr(adapter, "_get_client", lambda: pytest.fail("no debe llamar a Cognito"))
+    assert (await adapter.register("ana@b.cl", "pw123456", "Ana"))["user_confirmed"] is True
+
+
 # ── Modo local fail-closed y tokens reales ──
 
 @pytest.fixture

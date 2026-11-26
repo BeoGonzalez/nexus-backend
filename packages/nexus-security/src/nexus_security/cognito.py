@@ -13,6 +13,23 @@ ADMIN_GROUP = "admins"
 _ACCEPTED_TOKEN_USES = {"id", "access"}
 
 
+def is_placeholder_credential(value: str) -> bool:
+    """Valores de ejemplo (.env.example, docs): `xxxx...` o `your-...` no son credenciales reales.
+
+    Así, copiar `.env.example` a `.env` deja el sistema en modo local en vez de llamar a un
+    User Pool inexistente (ResourceNotFoundException) y validar JWT locales como RS256.
+    """
+    lowered = (value or "").strip().lower()
+    return lowered.startswith("your-") or "xxxx" in lowered
+
+
+def cognito_settings_present(user_pool_id: str | None, client_id: str | None) -> bool:
+    """True solo si ambos valores existen y ninguno es un placeholder."""
+    pool = (user_pool_id or "").strip()
+    client = (client_id or "").strip()
+    return bool(pool and client) and not (is_placeholder_credential(pool) or is_placeholder_credential(client))
+
+
 class CognitoJwtVerifier:
     """Valida firma (RS256 + JWKS del pool), emisor, expiracion, tipo de token y app client.
 

@@ -94,6 +94,26 @@ services:
     networks:
       - nexus_net
 
+  # Seed de juegos de ejemplo (one-shot). Espera a que catalog-service esté healthy
+  # porque las tablas las crea el servicio al arrancar (create_all). Idempotente.
+  catalog-seed:
+    image: postgres:16-alpine
+    container_name: nexus_catalog_seed
+    restart: "no"
+    environment:
+      PGHOST: postgres
+      PGUSER: nexus
+      PGPASSWORD: nexus123
+      PGDATABASE: nexus_catalog
+    command: ["psql", "-v", "ON_ERROR_STOP=1", "-f", "/seed/seed-catalog.sql"]
+    volumes:
+      - ./docker/postgres/seed-catalog.sql:/seed/seed-catalog.sql:ro
+    depends_on:
+      catalog-service:
+        condition: service_healthy
+    networks:
+      - nexus_net
+
   # ==============================================================================
   # 3. CARRITO DE COMPRAS (Cart Service - In-Memory Fast Path)
   # ==============================================================================

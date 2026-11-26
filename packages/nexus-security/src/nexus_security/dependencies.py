@@ -15,7 +15,7 @@ from fastapi import Header, HTTPException, status
 
 from nexus_core.domain.exceptions import UnauthorizedException
 from nexus_core.infrastructure.logging import log_security_event
-from nexus_security.cognito import CognitoJwtVerifier
+from nexus_security.cognito import CognitoJwtVerifier, cognito_settings_present
 from nexus_security.jwt import TokenPayload, decode_access_token
 
 GUEST_PREFIX = "guest:"
@@ -38,7 +38,7 @@ def verify_token(token: str) -> TokenPayload:
     pool = os.getenv("COGNITO_USER_POOL_ID", "").strip()
     client_id = os.getenv("COGNITO_APP_CLIENT_ID", "").strip()
     try:
-        if pool and client_id:
+        if cognito_settings_present(pool, client_id):
             region = os.getenv("COGNITO_REGION", "").strip() or pool.split("_", 1)[0]
             return get_cognito_verifier(region, pool, client_id).verify(token)
         secret = os.getenv("JWT_SECRET", "").strip()
